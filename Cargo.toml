@@ -1,0 +1,90 @@
+[package]
+name = "opendesk"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+default-run = "opendesk"
+description = "Cross-platform remote desktop with explicit session approval"
+
+[dependencies]
+eframe = { version = "0.31", optional = true, default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+screenshots = { version = "0.8.10", optional = true }
+image = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png"] }
+enigo = { version = "0.3", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+snow = "0.9"
+rand = "0.8"
+arboard = { version = "3", optional = true }
+sha2 = "0.10"
+base64 = "0.22"
+cpal = { version = "0.15.3", optional = true }
+argon2 = { version = "0.5", optional = true }
+hmac = { version = "0.12", optional = true }
+sha1 = { version = "0.10", optional = true }
+subtle = { version = "2", optional = true }
+ed25519-dalek = { version = "2", optional = true, features = ["rand_core"] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls", "json"] }
+semver = { version = "1", optional = true }
+iroh = "1.3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["desktop"]
+desktop = ["dep:eframe", "dep:screenshots", "dep:image", "dep:enigo", "dep:arboard", "dep:cpal", "dep:ashpd", "dep:tokio", "dep:libc", "dep:argon2", "dep:hmac", "dep:sha1", "dep:subtle", "dep:keyring", "dep:ed25519-dalek", "dep:reqwest", "dep:semver"]
+
+[[bin]]
+name = "opendesk"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "opendesk-relay"
+path = "src/bin/opendesk-relay.rs"
+
+[[bin]]
+name = "opendesk-setup"
+path = "src/bin/opendesk-setup.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "opendesk-updater"
+path = "src/bin/opendesk-updater.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "opendesk-sign-release"
+path = "src/bin/opendesk-sign-release.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "opendesk-probe"
+path = "src/bin/opendesk-probe.rs"
+required-features = ["desktop"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.11", optional = true, default-features = false, features = ["tokio"] }
+tokio = { version = "1", optional = true, features = ["rt", "time", "net", "sync", "macros"] }
+libc = { version = "0.2", optional = true }
+keyring = { version = "3", optional = true, features = ["sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+paranoid-android = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", optional = true, features = ["windows-native"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+
+[build-dependencies]
+winresource = "0.1.34"
+
+

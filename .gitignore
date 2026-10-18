@@ -1,0 +1,20 @@
+/target/
+/work/
+/Opendesk-inbox/
+*.log
+*.exe
+*.dll
+android-app/android/app/src/main/jniLibs/**/*.so
+
+# Release artifacts are published as GitHub release assets, not committed.
+/dist/
+*.apk
+*.tar.gz
+/SHA256SUMS-*.txt
+# Android/Gradle local state
+android-app/android/.gradle/
+android-app/android/local.properties
+android-app/.idea/
+# Local reverse-engineering notes about a proprietary binary are not published.
+/docs/anydesk-analysis.md
+/docs/evidence/

@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/lucide-static@0.460.0/font/lucide.css">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:oklch(0.54 0.15 258);text-decoration:none}
+a:hover{text-decoration:underline}
+input,button{font-family:inherit}
+@keyframes odspin{to{transform:rotate(360deg)}}
+@keyframes odpulse{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.9);opacity:0}}
+</style>
+</helmet>
+<div style="--page:oklch(0.93 0.006 250);--bg:oklch(0.975 0.004 250);--side:oklch(0.955 0.006 250);--card:oklch(0.995 0.002 250);--line:oklch(0.9 0.008 250);--ink:oklch(0.24 0.02 255);--mut:oklch(0.5 0.02 255);--acc:oklch(0.54 0.15 258);--accSoft:oklch(0.94 0.035 258);--accInk:#fff;--ok:oklch(0.52 0.12 155);--okSoft:oklch(0.95 0.04 155);--bad:oklch(0.55 0.17 25);--badSoft:oklch(0.95 0.035 25);--field:oklch(0.97 0.004 250);">
+<div style="{{ themeVars }}">
+<div style="min-height:100vh;background:var(--page);display:grid;place-items:center;padding:40px 24px;box-sizing:border-box;color:var(--ink);transition:background .2s">
+
+<div data-screen-label="Opendesk window" style="width:1080px;height:760px;background:var(--bg);border-radius:12px;box-shadow:0 0 0 1px var(--line),0 24px 60px -20px rgba(20,30,60,.35);overflow:hidden;display:flex;flex-direction:column;position:relative">
+
+  <div style="height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 14px;background:var(--side);border-bottom:1px solid var(--line);font-size:12px;color:var(--mut)">
+    <span>Opendesk</span>
+    <div style="display:flex;gap:2px">
+      <span style="width:34px;height:26px;display:grid;place-items:center"><i class="icon-minus" style="font-size:13px"></i></span>
+      <span style="width:34px;height:26px;display:grid;place-items:center"><i class="icon-square" style="font-size:11px"></i></span>
+      <span style="width:34px;height:26px;display:grid;place-items:center"><i class="icon-x" style="font-size:13px"></i></span>
+    </div>
+  </div>
+
+  <sc-if value="{{ isSession }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Session" style="flex:1;display:flex;flex-direction:column;min-height:0">
+    <div style="height:48px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;background:var(--card);border-bottom:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:8px;min-width:0">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></span>
+        <span style="font-weight:600;font-size:14px">{{ target }}</span>
+        <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ok);background:var(--okSoft);padding:3px 8px;border-radius:999px"><i class="icon-lock" style="font-size:11px"></i>{{ t.encrypted }}</span>
+      </div>
+      <div style="width:1px;height:22px;background:var(--line);margin:0 6px"></div>
+      <button style="display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--line);background:var(--card);border-radius:8px;color:var(--ink);font-size:13px;cursor:pointer"><i class="icon-monitor" style="font-size:15px;color:var(--mut)"></i>{{ t.display1short }}<i class="icon-chevron-down" style="font-size:13px;color:var(--mut)"></i></button>
+      <button style="display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--line);background:var(--card);border-radius:8px;color:var(--ink);font-size:13px;cursor:pointer"><i class="icon-gauge" style="font-size:15px;color:var(--mut)"></i>{{ t.qualityAuto }}<i class="icon-chevron-down" style="font-size:13px;color:var(--mut)"></i></button>
+      <div style="flex:1"></div>
+      <sc-for list="{{ tools }}" as="tool" hint-placeholder-count="3">
+        <button onClick="{{ tool.onClick }}" title="{{ tool.label }}" style="{{ tool.style }}"><i class="icon-{{ tool.icon }}" style="font-size:16px"></i><span>{{ tool.label }}</span></button>
+      </sc-for>
+      <button onClick="{{ toggleRec }}" title="{{ t.tbRecord }}" style="{{ recStyle }}"><i class="icon-circle-dot" style="font-size:16px"></i><span>{{ recLabel }}</span></button>
+      <button title="{{ t.tbFull }}" style="width:34px;height:34px;display:grid;place-items:center;border:none;background:transparent;border-radius:8px;color:var(--mut);cursor:pointer" style-hover="background:var(--field)"><i class="icon-maximize" style="font-size:16px"></i></button>
+      <button onClick="{{ endSession }}" style="display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:none;background:var(--bad);color:#fff;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-left:4px"><i class="icon-phone-off" style="font-size:15px"></i>{{ t.tbEnd }}</button>
+    </div>
+    <div style="flex:1;display:flex;min-height:0">
+      <div style="flex:1;position:relative;background:oklch(0.3 0.02 255);overflow:hidden">
+        <div style="position:absolute;inset:16px;border-radius:6px;background:repeating-linear-gradient(135deg,oklch(0.36 0.02 255) 0 10px,oklch(0.33 0.02 255) 10px 20px);display:grid;place-items:center">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:oklch(0.78 0.02 255);background:oklch(0.28 0.02 255);padding:6px 10px;border-radius:6px">{{ t.remoteLabel }} · 1920×1080</span>
+        </div>
+        <div style="position:absolute;left:28px;bottom:28px;display:flex;gap:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:oklch(0.92 0.01 255);background:oklch(0.2 0.02 255 / .85);padding:6px 10px;border-radius:6px">
+          <span>{{ fps }} fps</span><span>38 ms</span><span>{{ t.direct }}</span>
+        </div>
+      </div>
+      <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="width:320px;flex-shrink:0;background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;align-items:center;gap:4px;padding:10px 10px 0 12px">
+          <div style="flex:1;display:flex;gap:2px;background:var(--field);border:1px solid var(--line);border-radius:9px;padding:3px">
+            <sc-for list="{{ panelTabs }}" as="tab" hint-placeholder-count="3">
+              <button onClick="{{ tab.onClick }}" style="{{ tab.style }}">{{ tab.label }}</button>
+            </sc-for>
+          </div>
+          <button onClick="{{ closePanel }}" style="width:30px;height:30px;display:grid;place-items:center;border:none;background:transparent;border-radius:7px;color:var(--mut);cursor:pointer"><i class="icon-x" style="font-size:16px"></i></button>
+        </div>
+
+        <sc-if value="{{ panelChat }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div style="flex:1;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ msgs }}" as="m" hint-placeholder-count="2">
+              <div style="{{ m.wrap }}"><div style="{{ m.bubble }}">{{ m.text }}</div></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;gap:6px;padding:12px;border-top:1px solid var(--line)">
+            <input value="{{ chat }}" onChange="{{ onChat }}" onKeyDown="{{ onChatKey }}" placeholder="{{ t.chatPh }}" style="flex:1;min-width:0;height:36px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--ink);font-size:13px;outline:none">
+            <button onClick="{{ sendChat }}" style="width:36px;height:36px;display:grid;place-items:center;border:none;background:var(--acc);color:var(--accInk);border-radius:8px;cursor:pointer"><i class="icon-send" style="font-size:15px"></i></button>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ panelFiles }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:14px">
+          <div style="border:1.5px dashed var(--line);border-radius:10px;padding:22px 16px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+            <i class="icon-upload" style="font-size:22px;color:var(--acc)"></i>
+            <span style="font-size:13px;font-weight:500">{{ t.filesDrop }}</span>
+            <span style="font-size:12px;color:var(--mut)">{{ t.filesLimit }}</span>
+          </div>
+          <sc-if value="{{ incomingFile }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--accSoft)">
+            <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--acc)">{{ t.incomingFile }}</span>
+            <div style="display:flex;align-items:center;gap:10px">
+              <i class="icon-file" style="font-size:18px;color:var(--mut)"></i>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:13px;font-weight:500">rapor.xlsx</span><span style="font-size:12px;color:var(--mut)">860 KB</span></div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button onClick="{{ declineFile }}" style="flex:1;height:32px;border:1px solid var(--line);background:var(--card);border-radius:7px;color:var(--ink);font-size:13px;cursor:pointer">{{ t.decline }}</button>
+              <button onClick="{{ saveFile }}" style="flex:1;height:32px;border:none;background:var(--acc);border-radius:7px;color:var(--accInk);font-size:13px;font-weight:600;cursor:pointer">{{ t.save }}</button>
+            </div>
+          </div>
+          </sc-if>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ files }}" as="f" hint-placeholder-count="1">
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 4px">
+                <i class="icon-{{ f.icon }}" style="font-size:16px;color:var(--mut)"></i>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:13px">{{ f.name }}</span><span style="font-size:12px;color:var(--mut)">{{ f.size }} · {{ f.status }}</span></div>
+                <i class="icon-check" style="font-size:15px;color:var(--ok)"></i>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ panelClip }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:14px">
+          <button onClick="{{ sendClip }}" style="height:38px;display:flex;align-items:center;justify-content:center;gap:8px;border:none;background:var(--acc);color:var(--accInk);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer"><i class="icon-clipboard" style="font-size:15px"></i>{{ clipSendLabel }}</button>
+          <p style="margin:0;font-size:12px;line-height:1.5;color:var(--mut);text-wrap:pretty">{{ t.clipHint }}</p>
+          <sc-if value="{{ clipRecv }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px">
+            <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mut)">{{ t.clipReceived }} · 42 B</span>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--field);border-radius:6px;padding:8px 10px;word-break:break-all">https://github.com/opendesk/opendesk</div>
+            <div style="display:flex;gap:6px">
+              <button onClick="{{ dropClip }}" style="flex:1;height:32px;border:1px solid var(--line);background:var(--card);border-radius:7px;color:var(--ink);font-size:13px;cursor:pointer">{{ t.discard }}</button>
+              <button onClick="{{ dropClip }}" style="flex:1;height:32px;border:none;background:var(--acc);border-radius:7px;color:var(--accInk);font-size:13px;font-weight:600;cursor:pointer">{{ t.apply }}</button>
+            </div>
+          </div>
+          </sc-if>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ notSession }}" hint-placeholder-val="{{ true }}">
+  <div style="flex:1;display:flex;min-height:0">
+
+    <aside style="width:216px;flex-shrink:0;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:18px 12px 14px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px 22px">
+        <sc-if value="{{ logoA }}" hint-placeholder-val="{{ true }}">
+          <div style="position:relative;width:28px;height:28px;flex-shrink:0">
+            <div style="position:absolute;left:0;top:0;width:18px;height:18px;border-radius:5px;box-sizing:border-box;border:2.5px solid var(--acc)"></div>
+            <div style="position:absolute;left:10px;top:10px;width:18px;height:18px;border-radius:5px;background:var(--acc);box-shadow:0 0 0 2.5px var(--side)"></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ logoB }}" hint-placeholder-val="{{ false }}">
+          <div style="position:relative;width:28px;height:28px;flex-shrink:0">
+            <div style="position:absolute;inset:0;border-radius:50%;box-sizing:border-box;border:5px solid var(--acc);border-top-color:transparent;transform:rotate(45deg)"></div>
+            <div style="position:absolute;left:10px;top:10px;width:8px;height:8px;border-radius:50%;background:var(--acc)"></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ logoC }}" hint-placeholder-val="{{ false }}">
+          <div style="width:28px;height:28px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transform:rotate(-35deg)">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--acc)"></div>
+            <div style="width:6px;height:3px;background:var(--acc)"></div>
+            <div style="width:10px;height:10px;border-radius:50%;box-sizing:border-box;border:3px solid var(--acc)"></div>
+          </div>
+        </sc-if>
+        <span style="font-size:17px;font-weight:600;letter-spacing:-.01em">opendesk</span>
+      </div>
+      <nav style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="3">
+          <button onClick="{{ n.onClick }}" style="{{ n.style }}"><i class="icon-{{ n.icon }}" style="font-size:17px"></i>{{ n.label }}</button>
+        </sc-for>
+      </nav>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px;border-radius:9px;background:var(--card);border:1px solid var(--line);margin-bottom:10px">
+        <span style="{{ statusDot }}"></span>
+        <div style="display:flex;flex-direction:column;min-width:0">
+          <span style="font-size:12px;font-weight:500">{{ statusLabel }}</span>
+          <span style="font-size:11px;color:var(--mut)">DESKTOP-ZEYNEP</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onClick="{{ toggleTheme }}" title="{{ t.theme }}" style="flex:1;height:32px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:transparent;border-radius:8px;color:var(--mut);font-size:12px;cursor:pointer"><i class="icon-{{ themeIcon }}" style="font-size:15px"></i>{{ themeLabel }}</button>
+        <button onClick="{{ toggleLang }}" title="{{ t.language }}" style="width:52px;height:32px;display:flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--line);background:transparent;border-radius:8px;color:var(--mut);font-size:12px;font-weight:600;cursor:pointer"><i class="icon-globe" style="font-size:14px"></i>{{ langCode }}</button>
+      </div>
+    </aside>
+
+    <main style="flex:1;min-width:0;position:relative;overflow:auto">
+
+      <sc-if value="{{ isConnecting }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Connecting" style="position:absolute;inset:0;display:grid;place-items:center;background:var(--bg)">
+        <div style="width:360px;display:flex;flex-direction:column;align-items:center;gap:22px;text-align:center">
+          <div style="position:relative;width:76px;height:76px;display:grid;place-items:center">
+            {{ pulse }}
+            <div style="position:relative;width:76px;height:76px;border-radius:50%;background:var(--accSoft);display:grid;place-items:center"><i class="icon-cast" style="font-size:30px;color:var(--acc)"></i></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <span style="font-size:20px;font-weight:600">{{ t.connTitle }}</span>
+            <span style="font-size:14px;color:var(--mut)">{{ target }}</span>
+          </div>
+          <div style="width:100%;display:flex;flex-direction:column;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;text-align:left">
+            <sc-for list="{{ steps }}" as="s" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:12px;padding:9px 10px">
+                <span style="width:18px;height:18px;display:grid;place-items:center;flex-shrink:0">
+                  <sc-if value="{{ s.done }}"><i class="icon-check" style="font-size:16px;color:var(--ok)"></i></sc-if>
+                  <sc-if value="{{ s.active }}">{{ spinner }}</sc-if>
+                  <sc-if value="{{ s.todo }}"><span style="width:10px;height:10px;border-radius:50%;border:1.5px solid var(--line)"></span></sc-if>
+                </span>
+                <span style="{{ s.style }}">{{ s.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <button onClick="{{ cancelConnect }}" style="height:36px;padding:0 18px;border:1px solid var(--line);background:var(--card);border-radius:8px;color:var(--ink);font-size:13px;cursor:pointer">{{ t.cancel }}</button>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ pageHome }}" hint-placeholder-val="{{ true }}">
+      <div data-screen-label="Home" style="padding:36px 36px 28px;display:flex;flex-direction:column;gap:24px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.015em">{{ t.homeTitle }}</h1>
+          <span style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--mut)"><i class="icon-shield-check" style="font-size:15px;color:var(--ok)"></i>{{ t.homeSub }}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start">
+
+          <section style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:18px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="width:38px;height:38px;border-radius:10px;background:var(--accSoft);display:grid;place-items:center;flex-shrink:0"><i class="icon-monitor-up" style="font-size:19px;color:var(--acc)"></i></span>
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+                <span style="font-size:16px;font-weight:600">{{ t.shareTitle }}</span>
+                <span style="font-size:12px;color:var(--mut)">{{ shareSub }}</span>
+              </div>
+            </div>
+
+            <sc-if value="{{ shareOff }}" hint-placeholder-val="{{ true }}">
+              <p style="margin:0;font-size:13px;line-height:1.55;color:var(--mut);text-wrap:pretty">{{ t.shareOff }}</p>
+            </sc-if>
+
+            <sc-if value="{{ shareOn }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <span style="font-size:12px;font-weight:500;color:var(--mut)">{{ t.inviteLabel }}</span>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:500;letter-spacing:.04em;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:14px 14px;text-align:center">OD-7K4Q-92XM-H3PA-W8NE</div>
+              <div style="display:flex;gap:8px">
+                <button onClick="{{ copyCode }}" style="flex:1;height:36px;display:flex;align-items:center;justify-content:center;gap:6px;border:none;background:var(--acc);color:var(--accInk);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer"><i class="icon-{{ copyCodeIcon }}" style="font-size:15px"></i>{{ copyCodeLabel }}</button>
+                <button onClick="{{ copyLink }}" style="flex:1;height:36px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;font-size:13px;font-weight:500;cursor:pointer"><i class="icon-{{ copyLinkIcon }}" style="font-size:15px;color:var(--mut)"></i>{{ copyLinkLabel }}</button>
+              </div>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut);text-align:center">opendesk://join/7K4Q92XMH3PAW8NE</span>
+            </div>
+            </sc-if>
+
+            <sc-if value="{{ shareActive }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:var(--okSoft)">
+              <i class="icon-eye" style="font-size:18px;color:var(--ok)"></i>
+              <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+                <span style="font-size:13px;font-weight:600">ayse-laptop</span>
+                <span style="font-size:12px;color:var(--mut)">{{ activePerm }}</span>
+              </div>
+            </div>
+            </sc-if>
+
+            <div style="display:flex;flex-direction:column;border-top:1px solid var(--line)">
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)">
+                <i class="icon-mouse-pointer-2" style="font-size:16px;color:var(--mut)"></i>
+                <span style="flex:1;font-size:13px">{{ t.allowControl }}</span>
+                <button onClick="{{ toggleControl }}" style="{{ tgControl.track }}"><span style="{{ tgControl.knob }}"></span></button>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 0">
+                <i class="icon-monitor" style="font-size:16px;color:var(--mut)"></i>
+                <span style="flex:1;font-size:13px">{{ t.display }}</span>
+                <span style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--mut)">{{ t.display1 }}<i class="icon-chevron-down" style="font-size:13px"></i></span>
+              </div>
+            </div>
+
+            <sc-if value="{{ shareOff }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ startShare }}" style="height:40px;border:none;background:var(--acc);color:var(--accInk);border-radius:9px;font-size:14px;font-weight:600;cursor:pointer">{{ t.shareStart }}</button>
+            </sc-if>
+            <sc-if value="{{ shareNotOff }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ stopShare }}" style="height:40px;border:1px solid var(--bad);background:transparent;color:var(--bad);border-radius:9px;font-size:14px;font-weight:600;cursor:pointer">{{ t.shareStop }}</button>
+            </sc-if>
+          </section>
+
+          <section style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:18px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="width:38px;height:38px;border-radius:10px;background:var(--accSoft);display:grid;place-items:center;flex-shrink:0"><i class="icon-cast" style="font-size:19px;color:var(--acc)"></i></span>
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+                <span style="font-size:16px;font-weight:600">{{ t.connectTitle }}</span>
+                <span style="font-size:12px;color:var(--mut)">{{ t.connectSub }}</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <input value="{{ code }}" onChange="{{ onCode }}" onKeyDown="{{ onCodeKey }}" placeholder="{{ t.connectPh }}" style="height:44px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--field);color:var(--ink);font-family:'IBM Plex Mono',monospace;font-size:14px;outline:none" style-focus="border-color:var(--acc)">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <button onClick="{{ useDemo }}" style="border:none;background:none;padding:0;color:var(--acc);font-size:12px;cursor:pointer">{{ t.demoCode }}</button>
+              </div>
+            </div>
+            <button onClick="{{ connectCode }}" style="{{ connectBtnStyle }}">{{ t.connectBtn }}<i class="icon-arrow-right" style="font-size:16px"></i></button>
+            <div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:0 2px 6px">
+                <span style="font-size:12px;font-weight:500;color:var(--mut)">{{ t.recent }}</span>
+                <button onClick="{{ goDevices }}" style="border:none;background:none;padding:0;color:var(--acc);font-size:12px;cursor:pointer">{{ t.seeAll }}</button>
+              </div>
+              <sc-for list="{{ recent }}" as="d" hint-placeholder-count="3">
+                <button onClick="{{ d.onConnect }}" style="display:flex;align-items:center;gap:10px;padding:8px;border:none;background:transparent;border-radius:8px;cursor:pointer;text-align:left;color:var(--ink)" style-hover="background:var(--field)">
+                  <span style="width:30px;height:30px;border-radius:8px;background:var(--field);border:1px solid var(--line);display:grid;place-items:center;flex-shrink:0"><i class="icon-monitor" style="font-size:15px;color:var(--mut)"></i></span>
+                  <span style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:13px;font-weight:500">{{ d.name }}</span><span style="font-size:11px;color:var(--mut)">{{ d.last }}</span></span>
+                  <i class="icon-arrow-right" style="font-size:15px;color:var(--mut)"></i>
+                </button>
+              </sc-for>
+            </div>
+          </section>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ pageDevices }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Devices" style="padding:36px 36px 28px;display:flex;flex-direction:column;gap:20px">
+        <div style="display:flex;align-items:flex-end;gap:16px">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.015em">{{ t.devTitle }}</h1>
+            <span style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--mut)"><i class="icon-lock" style="font-size:14px"></i>{{ t.devSub }}</span>
+          </div>
+          <button style="height:36px;display:flex;align-items:center;gap:6px;padding:0 14px;border:none;background:var(--acc);color:var(--accInk);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer"><i class="icon-plus" style="font-size:15px"></i>{{ t.devAdd }}</button>
+        </div>
+        <div style="position:relative">
+          <i class="icon-search" style="position:absolute;left:12px;top:11px;font-size:16px;color:var(--mut)"></i>
+          <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="{{ t.devSearch }}" style="width:100%;box-sizing:border-box;height:38px;padding:0 12px 0 36px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:13px;outline:none">
+        </div>
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+          <sc-for list="{{ devices }}" as="d" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line)">
+              <button onClick="{{ d.onFav }}" title="★" style="{{ d.starStyle }}"><i class="icon-star" style="font-size:16px"></i></button>
+              <span style="width:36px;height:36px;border-radius:9px;background:var(--field);border:1px solid var(--line);display:grid;place-items:center;flex-shrink:0"><i class="icon-monitor" style="font-size:17px;color:var(--mut)"></i></span>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                <span style="font-size:14px;font-weight:500">{{ d.name }}</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut)">{{ d.addr }}</span>
+              </div>
+              <span style="{{ d.badgeStyle }}">{{ d.modeLabel }}</span>
+              <span style="width:110px;font-size:12px;color:var(--mut);text-align:right">{{ d.last }}</span>
+              <button onClick="{{ d.onConnect }}" style="height:32px;padding:0 14px;border:1px solid var(--line);background:var(--card);border-radius:8px;color:var(--ink);font-size:13px;font-weight:500;cursor:pointer" style-hover="border-color:var(--acc);color:var(--acc)">{{ t.devConnect }}</button>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noDevices }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:28px;text-align:center;font-size:13px;color:var(--mut)">{{ t.noDevices }}</div>
+          </sc-if>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ pageSettings }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Settings" style="padding:36px 36px 28px;display:flex;flex-direction:column;gap:20px;max-width:640px">
+        <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.015em">{{ t.setTitle }}</h1>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <span style="font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);padding-left:2px">{{ t.secConn }}</span>
+          <div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px 16px">
+            <div style="display:flex;flex-direction:column;gap:10px;padding:14px 0;border-bottom:1px solid var(--line)">
+              <span style="font-size:13px;font-weight:500">{{ t.connMode }}</span>
+              <div style="display:flex;gap:2px;background:var(--field);border:1px solid var(--line);border-radius:9px;padding:3px">
+                <button onClick="{{ setDirect }}" style="{{ segDirect }}">{{ t.modeDirect }}</button>
+                <button onClick="{{ setRelay }}" style="{{ segRelay }}">{{ t.modeRelay }}</button>
+              </div>
+            </div>
+            <sc-if value="{{ isRelay }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)">
+              <div style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:13px;font-weight:500">{{ t.relayAddr }}</span><span style="font-size:12px;color:var(--mut);text-wrap:pretty">{{ t.relayHint }}</span></div>
+              <input value="relay.ornek.com:7879" readonly style="width:200px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--ink);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none">
+            </div>
+            </sc-if>
+            <sc-if value="{{ isDirect }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)">
+              <div style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:13px;font-weight:500">{{ t.listenPort }}</span><span style="font-size:12px;color:var(--mut)">{{ t.portHint }}</span></div>
+              <input value="7878" readonly style="width:90px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--ink);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
+            </div>
+            </sc-if>
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.autoRe }}</span>
+              <button onClick="{{ toggleAutoRe }}" style="{{ tgAutoRe.track }}"><span style="{{ tgAutoRe.knob }}"></span></button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <span style="font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);padding-left:2px">{{ t.secVideo }}</span>
+          <div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px 16px">
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.quality }}</span>
+              <input type="range" min="30" max="90" value="{{ quality }}" onChange="{{ onQuality }}" style="width:200px;accent-color:var(--acc)">
+              <span style="width:34px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mut)">{{ quality }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.fps }}</span>
+              <input type="range" min="1" max="30" value="{{ fps }}" onChange="{{ onFps }}" style="width:200px;accent-color:var(--acc)">
+              <span style="width:34px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mut)">{{ fps }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.adaptive }}</span>
+              <button onClick="{{ toggleAdaptive }}" style="{{ tgAdaptive.track }}"><span style="{{ tgAdaptive.knob }}"></span></button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <span style="font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);padding-left:2px">{{ t.secFiles }}</span>
+          <div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px 16px">
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.inbox }}</span>
+              <span style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mut)"><i class="icon-folder" style="font-size:14px"></i>~/Downloads/Opendesk</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 0">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.recPath }}</span>
+              <span style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mut)"><i class="icon-folder" style="font-size:14px"></i>~/Videos/Opendesk</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <span style="font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);padding-left:2px">{{ t.secLook }}</span>
+          <div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px 16px">
+            <div style="display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.theme }}</span>
+              <div style="width:200px;display:flex;gap:2px;background:var(--field);border:1px solid var(--line);border-radius:9px;padding:3px">
+                <button onClick="{{ setLight }}" style="{{ segLight }}">{{ t.light }}</button>
+                <button onClick="{{ setDark }}" style="{{ segDark }}">{{ t.dark }}</button>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;padding:12px 0">
+              <span style="flex:1;font-size:13px;font-weight:500">{{ t.language }}</span>
+              <div style="width:200px;display:flex;gap:2px;background:var(--field);border:1px solid var(--line);border-radius:9px;padding:3px">
+                <button onClick="{{ setTr }}" style="{{ segTr }}">Türkçe</button>
+                <button onClick="{{ setEn }}" style="{{ segEn }}">English</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <span style="font-size:12px;color:var(--mut);padding-left:2px">{{ t.about }}</span>
+      </div>
+      </sc-if>
+    </main>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ showRequest }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Incoming request" style="position:absolute;inset:34px 0 0 0;background:oklch(0.2 0.02 255 / .45);display:grid;place-items:center">
+    <div style="width:400px;background:var(--card);border-radius:16px;box-shadow:0 24px 60px -12px rgba(0,0,0,.4);padding:24px;display:flex;flex-direction:column;gap:18px">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center">
+        <span style="width:52px;height:52px;border-radius:14px;background:var(--accSoft);display:grid;place-items:center"><i class="icon-monitor" style="font-size:24px;color:var(--acc)"></i></span>
+        <span style="font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--acc)">{{ t.reqTitle }}</span>
+        <span style="font-size:15px;line-height:1.45;text-wrap:pretty"><strong style="font-weight:600">ayse-laptop</strong> {{ t.reqBody }}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mut)">192.168.1.34</span>
+      </div>
+      <div style="display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;padding:2px 14px">
+        <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)">
+          <i class="icon-eye" style="font-size:16px;color:var(--mut)"></i><span style="flex:1;font-size:13px">{{ t.permView }}</span><i class="icon-lock" style="font-size:14px;color:var(--mut)"></i>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)">
+          <i class="icon-mouse-pointer-2" style="font-size:16px;color:var(--mut)"></i><span style="flex:1;font-size:13px">{{ t.permControl }}</span>
+          <button onClick="{{ togglePermControl }}" style="{{ tgPermControl.track }}"><span style="{{ tgPermControl.knob }}"></span></button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)">
+          <i class="icon-clipboard" style="font-size:16px;color:var(--mut)"></i><span style="flex:1;font-size:13px">{{ t.permClip }}</span>
+          <button onClick="{{ togglePermClip }}" style="{{ tgPermClip.track }}"><span style="{{ tgPermClip.knob }}"></span></button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:11px 0">
+          <i class="icon-folder" style="font-size:16px;color:var(--mut)"></i><span style="flex:1;font-size:13px">{{ t.permFiles }}</span>
+          <button onClick="{{ togglePermFiles }}" style="{{ tgPermFiles.track }}"><span style="{{ tgPermFiles.knob }}"></span></button>
+        </div>
+      </div>
+      <p style="margin:0;font-size:12px;line-height:1.5;color:var(--mut);text-align:center;text-wrap:pretty">{{ t.reqNote }}</p>
+      <div style="display:flex;gap:8px">
+        <button onClick="{{ reject }}" style="flex:1;height:40px;border:1px solid var(--line);background:var(--card);border-radius:9px;color:var(--ink);font-size:14px;font-weight:500;cursor:pointer">{{ t.reject }}</button>
+        <button onClick="{{ accept }}" style="flex:1;height:40px;border:none;background:var(--acc);border-radius:9px;color:var(--accInk);font-size:14px;font-weight:600;cursor:pointer">{{ t.accept }}</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;logo&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;,&quot;c&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;'a'|'b'|'c'&quot;},&quot;autoRequest&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const T = {
+  tr: {
+    navConnect:'Bağlan', navDevices:'Cihazlar', navSettings:'Ayarlar',
+    homeTitle:'Bağlan veya paylaş', homeSub:'Uçtan uca şifreli. Her bağlantıyı sen onaylarsın.',
+    shareTitle:'Bu bilgisayarı paylaş', shareOffSub:'Paylaşım kapalı', shareListenSub:'Bağlantı bekleniyor…', shareActiveSub:'Ekranın paylaşılıyor',
+    shareOff:'Başlattığında tek kullanımlık bir davet kodu oluşur. Kodu karşı tarafa ilet, bağlanma isteğini sen onayla.',
+    shareStart:'Paylaşımı başlat', shareStop:'Paylaşımı durdur', inviteLabel:'Davet kodu',
+    copyCode:'Kodu kopyala', copyLink:'Bağlantıyı kopyala', copied:'Kopyalandı',
+    allowControl:'Fare ve klavye kontrolüne izin ver', display:'Paylaşılan ekran', display1:'Ekran 1', display1short:'Ekran 1',
+    viewOnly:'Yalnızca izliyor', withControl:'İzliyor ve kontrol ediyor',
+    connectTitle:'Uzak bilgisayara bağlan', connectSub:'Davet kodu veya opendesk:// bağlantısı', connectPh:'OD-XXXX-XXXX-XXXX-XXXX', connectBtn:'Bağlan', demoCode:'Örnek kod yapıştır', recent:'Son bağlantılar', seeAll:'Tümünü gör',
+    reqTitle:'Bağlantı isteği', reqBody:'bu bilgisayara bağlanmak istiyor.', permView:'Ekranı görme', permControl:'Fare ve klavye', permClip:'Pano', permFiles:'Dosya aktarımı',
+    reject:'Reddet', accept:'Kabul et', reqNote:'Kabul edersen seçili ekranın paylaşılır. İstediğin an durdurabilirsin.',
+    connTitle:'Bağlanılıyor', step1:'Şifreli kanal kuruluyor', step2:'Karşı tarafın onayı bekleniyor', step3:'Görüntü alınıyor', cancel:'Vazgeç',
+    encrypted:'Şifreli', qualityAuto:'Kalite: Otomatik', tbChat:'Sohbet', tbFiles:'Dosyalar', tbClip:'Pano', tbFull:'Tam ekran', tbRecord:'Kaydet', recording:'Kayıtta', tbEnd:'Bitir', remoteLabel:'uzak masaüstü görüntüsü', direct:'doğrudan',
+    chatPh:'Mesaj yaz…', filesDrop:'Dosyayı buraya bırak veya seç', filesLimit:'Dosya başına en fazla 16 MiB', incomingFile:'Gelen dosya', save:'Kaydet', decline:'Reddet', sent:'gönderildi', received:'kaydedildi',
+    clipSend:'Panomu gönder', clipSent:'Gönderildi', clipHint:'Pano otomatik eşitlenmez: sen gönderirsin, karşı taraf onaylar. En fazla 8 KiB metin.', clipReceived:'Gelen pano', apply:'Uygula', discard:'At',
+    devTitle:'Cihazlar', devSub:'Adresler kaydedilir, eşleştirme anahtarları kaydedilmez.', devSearch:'Cihaz ara', devAdd:'Cihaz ekle', devDirect:'Doğrudan', devRelay:'Relay', devConnect:'Bağlan', noDevices:'Eşleşen cihaz yok.',
+    setTitle:'Ayarlar', secConn:'Bağlantı', connMode:'Bağlantı yolu', modeDirect:'Doğrudan (aynı ağ)', modeRelay:'Kendi relay sunucum', relayAddr:'Relay adresi', relayHint:'Farklı ağlar için. Relay yalnızca şifreli veriyi iletir.', listenPort:'Dinleme portu', portHint:'Aynı ağdaki cihazlar bu porttan bağlanır.', autoRe:'Bağlantı koparsa yeniden dene',
+    secVideo:'Görüntü', quality:'Görüntü kalitesi', fps:'Kare / saniye', adaptive:'Kaliteyi bağlantı hızına göre ayarla',
+    secFiles:'Dosyalar ve kayıt', inbox:'Gelen dosyalar', recPath:'Oturum kayıtları',
+    secLook:'Görünüm', theme:'Tema', light:'Açık', dark:'Koyu', language:'Dil',
+    about:'Opendesk 0.2.0 · MIT lisansı · Açık kaynak',
+    stOff:'Paylaşım kapalı', stListen:'Bağlantı bekleniyor', stActive:'Ekran paylaşılıyor',
+    msgs:['Merhaba! Ekranını görebiliyorum.','Harika, sunumu açıyorum.'],
+    last:['Bugün 14:20','Dün','3 gün önce','2 hafta önce']
+  },
+  en: {
+    navConnect:'Connect', navDevices:'Devices', navSettings:'Settings',
+    homeTitle:'Connect or share', homeSub:'End-to-end encrypted. You approve every connection.',
+    shareTitle:'Share this computer', shareOffSub:'Sharing is off', shareListenSub:'Waiting for a connection…', shareActiveSub:'Your screen is shared',
+    shareOff:'Starting creates a one-time invite code. Send it to the other person, then approve their request.',
+    shareStart:'Start sharing', shareStop:'Stop sharing', inviteLabel:'Invite code',
+    copyCode:'Copy code', copyLink:'Copy link', copied:'Copied',
+    allowControl:'Allow mouse and keyboard control', display:'Shared display', display1:'Display 1', display1short:'Display 1',
+    viewOnly:'Viewing only', withControl:'Viewing and controlling',
+    connectTitle:'Connect to a computer', connectSub:'Invite code or opendesk:// link', connectPh:'OD-XXXX-XXXX-XXXX-XXXX', connectBtn:'Connect', demoCode:'Paste sample code', recent:'Recent', seeAll:'See all',
+    reqTitle:'Connection request', reqBody:'wants to connect to this computer.', permView:'View screen', permControl:'Mouse and keyboard', permClip:'Clipboard', permFiles:'File transfer',
+    reject:'Decline', accept:'Accept', reqNote:'Accepting shares your selected display. You can stop at any time.',
+    connTitle:'Connecting', step1:'Setting up encrypted channel', step2:'Waiting for approval', step3:'Receiving video', cancel:'Cancel',
+    encrypted:'Encrypted', qualityAuto:'Quality: Auto', tbChat:'Chat', tbFiles:'Files', tbClip:'Clipboard', tbFull:'Fullscreen', tbRecord:'Record', recording:'Recording', tbEnd:'End', remoteLabel:'remote desktop view', direct:'direct',
+    chatPh:'Type a message…', filesDrop:'Drop a file here or browse', filesLimit:'Up to 16 MiB per file', incomingFile:'Incoming file', save:'Save', decline:'Decline', sent:'sent', received:'saved',
+    clipSend:'Send my clipboard', clipSent:'Sent', clipHint:'Clipboard is never synced automatically: you send it, they approve. Text up to 8 KiB.', clipReceived:'Received clipboard', apply:'Apply', discard:'Discard',
+    devTitle:'Devices', devSub:'Addresses are saved; pairing secrets never are.', devSearch:'Search devices', devAdd:'Add device', devDirect:'Direct', devRelay:'Relay', devConnect:'Connect', noDevices:'No matching devices.',
+    setTitle:'Settings', secConn:'Connection', connMode:'Route', modeDirect:'Direct (same network)', modeRelay:'My own relay server', relayAddr:'Relay address', relayHint:'For different networks. The relay only forwards encrypted bytes.', listenPort:'Listening port', portHint:'Devices on the same network connect on this port.', autoRe:'Retry if the connection drops',
+    secVideo:'Video', quality:'Image quality', fps:'Frames / second', adaptive:'Adapt quality to connection speed',
+    secFiles:'Files and recording', inbox:'Incoming files', recPath:'Session recordings',
+    secLook:'Appearance', theme:'Theme', light:'Light', dark:'Dark', language:'Language',
+    about:'Opendesk 0.2.0 · MIT license · Open source',
+    stOff:'Sharing off', stListen:'Waiting for connection', stActive:'Screen shared',
+    msgs:['Hi! I can see your screen.','Great, opening the slides.'],
+    last:['Today 14:20','Yesterday','3 days ago','2 weeks ago']
+  }
+};
+const DARK = {'--page':'oklch(0.13 0.01 255)','--bg':'oklch(0.2 0.012 255)','--side':'oklch(0.17 0.012 255)','--card':'oklch(0.235 0.014 255)','--line':'oklch(0.32 0.014 255)','--ink':'oklch(0.94 0.006 255)','--mut':'oklch(0.7 0.014 255)','--acc':'oklch(0.68 0.14 258)','--accSoft':'oklch(0.3 0.06 258)','--accInk':'oklch(0.17 0.03 258)','--ok':'oklch(0.72 0.12 155)','--okSoft':'oklch(0.29 0.05 155)','--bad':'oklch(0.62 0.16 25)','--badSoft':'oklch(0.3 0.06 25)','--field':'oklch(0.2 0.012 255)'};
+const DEMO = 'OD-7K4Q-92XM-H3PA-W8NE';
+
+class Component extends DCLogic {
+  state = {
+    lang:'tr', theme:'light', page:'home', share:'off', control:true,
+    perm:{control:true, clip:true, files:true},
+    code:'', view:'app', step:0, target:'ofis-pc', panel:'chat', rec:false,
+    msgs:[{me:false,i:0},{me:true,i:1}], chat:'', copied:null,
+    mode:'direct', quality:70, fps:24, adaptive:true, autoRe:true, search:'',
+    incomingFile:true, clipRecv:true, clipSent:false,
+    files:[{name:'sunum.pdf', size:'2.4 MB', out:true}],
+    devices:[
+      {id:1,name:'ofis-pc',addr:'192.168.1.20:7878',mode:'direct',fav:true,l:0},
+      {id:2,name:'annem-laptop',addr:'relay.ornek.com:7879',mode:'relay',fav:true,l:1},
+      {id:3,name:'ev-sunucu',addr:'relay.ornek.com:7879',mode:'relay',fav:false,l:2},
+      {id:4,name:'toplanti-odasi',addr:'192.168.1.48:7878',mode:'direct',fav:false,l:3}
+    ]
+  };
+  timers = [];
+  later(fn, ms){ this.timers.push(setTimeout(fn, ms)); }
+  componentWillUnmount(){ this.timers.forEach(clearTimeout); }
+
+  tg(on){
+    return {
+      track:{position:'relative',width:36,height:20,flexShrink:0,borderRadius:999,border:'none',padding:0,cursor:'pointer',background:on?'var(--acc)':'var(--line)',transition:'background .15s'},
+      knob:{position:'absolute',top:2,left:on?18:2,width:16,height:16,borderRadius:999,background:'#fff',boxShadow:'0 1px 2px rgba(0,0,0,.25)',transition:'left .15s'}
+    };
+  }
+  seg(a){
+    return {flex:1,padding:'7px 10px',borderRadius:7,border:'none',background:a?'var(--card)':'transparent',color:a?'var(--ink)':'var(--mut)',boxShadow:a?'0 1px 2px rgba(0,0,0,.1)':'none',fontSize:13,fontWeight:500,cursor:'pointer',whiteSpace:'nowrap'};
+  }
+  connect(target){
+    this.timers.forEach(clearTimeout); this.timers = [];
+    this.setState({view:'connecting', step:0, target, page:'home'});
+    this.later(()=>this.setState({step:1}), 1000);
+    this.later(()=>this.setState({step:2}), 2400);
+    this.later(()=>this.setState({view:'session', panel:'chat'}), 3300);
+  }
+  copy(kind, text){
+    try { navigator.clipboard && navigator.clipboard.writeText(text); } catch(e){}
+    this.setState({copied:kind});
+    this.later(()=>this.setState({copied:null}), 1400);
+  }
+  sendChat(){
+    const v = this.state.chat.trim(); if(!v) return;
+    this.setState(s=>({msgs:[...s.msgs,{me:true,text:v}], chat:''}));
+  }
+
+  renderVals(){
+    const s = this.state, t = T[s.lang], logo = this.props.logo ?? 'a';
+    const auto = this.props.autoRequest ?? true;
+    const nav = [['home','link',t.navConnect],['devices','book-user',t.navDevices],['settings','settings',t.navSettings]];
+    const navItems = nav.map(([k,icon,label])=>{
+      const a = s.page===k && s.view!=='connecting' || (k==='home' && s.view==='connecting');
+      return {icon,label,onClick:()=>this.setState({page:k, view:s.view==='connecting'?'app':s.view}),
+        style:{display:'flex',alignItems:'center',gap:10,height:38,padding:'0 10px',border:'none',borderRadius:8,cursor:'pointer',fontSize:14,fontWeight:a?600:500,textAlign:'left',background:a?'var(--card)':'transparent',color:a?'var(--ink)':'var(--mut)',boxShadow:a?'0 0 0 1px var(--line)':'none'}};
+    });
+    const devs = s.devices.map(d=>({
+      ...d, last:t.last[d.l], modeLabel:d.mode==='relay'?t.devRelay:t.devDirect,
+      onConnect:()=>this.connect(d.name),
+      onFav:()=>this.setState(st=>({devices:st.devices.map(x=>x.id===d.id?{...x,fav:!x.fav}:x)})),
+      starStyle:{width:28,height:28,display:'grid',placeItems:'center',border:'none',background:'transparent',borderRadius:6,cursor:'pointer',color:d.fav?'oklch(0.72 0.15 75)':'var(--line)'},
+      badgeStyle:{fontSize:11,fontWeight:500,padding:'3px 8px',borderRadius:999,background:d.mode==='relay'?'var(--accSoft)':'var(--field)',color:d.mode==='relay'?'var(--acc)':'var(--mut)',border:'1px solid '+(d.mode==='relay'?'transparent':'var(--line)')}
+    }));
+    const q = s.search.trim().toLowerCase();
+    const devices = [...devs].sort((a,b)=>(b.fav-a.fav)).filter(d=>!q || d.name.includes(q) || d.addr.includes(q));
+    const steps = [t.step1,t.step2,t.step3].map((label,i)=>{
+      const done = i<s.step, active = i===s.step;
+      return {label, done, active, todo:!done&&!active, style:{fontSize:13,color:done||active?'var(--ink)':'var(--mut)',fontWeight:active?500:400}};
+    });
+    const toolDefs = [['chat','message-square',t.tbChat],['files','folder',t.tbFiles],['clip','clipboard',t.tbClip]];
+    const tools = toolDefs.map(([k,icon,label])=>{
+      const a = s.panel===k;
+      return {icon,label,onClick:()=>this.setState({panel:a?null:k}),
+        style:{display:'flex',alignItems:'center',gap:6,height:34,padding:'0 10px',border:'none',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:500,background:a?'var(--accSoft)':'transparent',color:a?'var(--acc)':'var(--mut)'}};
+    });
+    const panelTabs = toolDefs.map(([k,,label])=>({label,onClick:()=>this.setState({panel:k}),style:this.seg(s.panel===k)}));
+    const msgs = s.msgs.map(m=>({
+      text: m.text ?? t.msgs[m.i],
+      wrap:{display:'flex',justifyContent:m.me?'flex-end':'flex-start'},
+      bubble:{maxWidth:'80%',padding:'8px 12px',borderRadius:12,fontSize:13,lineHeight:1.45,background:m.me?'var(--acc)':'var(--field)',color:m.me?'var(--accInk)':'var(--ink)',border:m.me?'none':'1px solid var(--line)',borderBottomRightRadius:m.me?4:12,borderBottomLeftRadius:m.me?12:4}
+    }));
+    const statusColor = s.share==='active'?'var(--ok)':s.share==='off'?'var(--line)':'var(--acc)';
+    const hasCode = s.code.trim().length>0;
+    return {
+      t, themeVars:{display:'contents', ...(s.theme==='dark'?DARK:{})},
+      logoA:logo==='a', logoB:logo==='b', logoC:logo==='c',
+      isSession:s.view==='session', notSession:s.view!=='session', isConnecting:s.view==='connecting',
+      pageHome:s.page==='home' && s.view==='app', pageDevices:s.page==='devices' && s.view==='app', pageSettings:s.page==='settings' && s.view==='app',
+      navItems, target:s.target,
+      statusLabel: s.share==='active'?t.stActive:s.share==='off'?t.stOff:t.stListen,
+      statusDot:{width:8,height:8,borderRadius:'50%',flexShrink:0,background:statusColor,boxShadow:s.share==='off'?'none':'0 0 0 3px color-mix(in oklch, '+statusColor+' 25%, transparent)'},
+      themeIcon:s.theme==='dark'?'sun':'moon', themeLabel:s.theme==='dark'?t.light:t.dark,
+      toggleTheme:()=>this.setState({theme:s.theme==='dark'?'light':'dark'}),
+      langCode:s.lang==='tr'?'EN':'TR', toggleLang:()=>this.setState({lang:s.lang==='tr'?'en':'tr'}),
+      shareOff:s.share==='off', shareOn:s.share==='listening'||s.share==='request', shareActive:s.share==='active', shareNotOff:s.share!=='off',
+      shareSub: s.share==='off'?t.shareOffSub:s.share==='active'?t.shareActiveSub:t.shareListenSub,
+      showRequest:s.share==='request' && s.view==='app',
+      activePerm: s.perm.control && s.control ? t.withControl : t.viewOnly,
+      startShare:()=>{ this.setState({share:'listening'}); if(auto) this.later(()=>{ if(this.state.share==='listening') this.setState({share:'request', perm:{...this.state.perm, control:this.state.control}}); }, 2600); },
+      stopShare:()=>this.setState({share:'off'}),
+      accept:()=>this.setState({share:'active'}), reject:()=>this.setState({share:'listening'}),
+      copyCode:()=>this.copy('code',DEMO), copyLink:()=>this.copy('link','opendesk://join/7K4Q92XMH3PAW8NE'),
+      copyCodeLabel:s.copied==='code'?t.copied:t.copyCode, copyCodeIcon:s.copied==='code'?'check':'copy',
+      copyLinkLabel:s.copied==='link'?t.copied:t.copyLink, copyLinkIcon:s.copied==='link'?'check':'link',
+      tgControl:this.tg(s.control), toggleControl:()=>this.setState({control:!s.control}),
+      tgPermControl:this.tg(s.perm.control), togglePermControl:()=>this.setState({perm:{...s.perm,control:!s.perm.control}}),
+      tgPermClip:this.tg(s.perm.clip), togglePermClip:()=>this.setState({perm:{...s.perm,clip:!s.perm.clip}}),
+      tgPermFiles:this.tg(s.perm.files), togglePermFiles:()=>this.setState({perm:{...s.perm,files:!s.perm.files}}),
+      code:s.code, onCode:e=>this.setState({code:e.target.value}), onCodeKey:e=>{ if(e.key==='Enter' && hasCode) this.connect('ofis-pc'); },
+      useDemo:()=>this.setState({code:DEMO}), connectCode:()=>{ if(hasCode) this.connect('ofis-pc'); },
+      connectBtnStyle:{height:42,display:'flex',alignItems:'center',justifyContent:'center',gap:8,border:'none',borderRadius:9,fontSize:14,fontWeight:600,cursor:hasCode?'pointer':'default',background:hasCode?'var(--acc)':'var(--field)',color:hasCode?'var(--accInk)':'var(--mut)',boxShadow:hasCode?'none':'inset 0 0 0 1px var(--line)'},
+      recent:devs.slice(0,3), goDevices:()=>this.setState({page:'devices'}),
+      devices, noDevices:devices.length===0, search:s.search, onSearch:e=>this.setState({search:e.target.value}),
+      steps, cancelConnect:()=>{ this.timers.forEach(clearTimeout); this.timers=[]; this.setState({view:'app'}); },
+      spinner:React.createElement('span',{style:{display:'inline-block',width:14,height:14,boxSizing:'border-box',borderRadius:'50%',border:'2px solid var(--accSoft)',borderTopColor:'var(--acc)',animation:'odspin .8s linear infinite'}}),
+      pulse:React.createElement('span',{style:{position:'absolute',inset:0,borderRadius:'50%',background:'var(--acc)',animation:'odpulse 1.6s ease-out infinite'}}),
+      tools, panelTabs, panelOpen:!!s.panel, panelChat:s.panel==='chat', panelFiles:s.panel==='files', panelClip:s.panel==='clip',
+      closePanel:()=>this.setState({panel:null}),
+      recStyle:{display:'flex',alignItems:'center',gap:6,height:34,padding:'0 10px',border:'none',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:500,background:s.rec?'var(--badSoft)':'transparent',color:s.rec?'var(--bad)':'var(--mut)'},
+      recLabel:s.rec?t.recording:t.tbRecord, toggleRec:()=>this.setState({rec:!s.rec}),
+      endSession:()=>this.setState({view:'app', rec:false}),
+      fps:s.fps, quality:s.quality,
+      msgs, chat:s.chat, onChat:e=>this.setState({chat:e.target.value}), onChatKey:e=>{ if(e.key==='Enter') this.sendChat(); }, sendChat:()=>this.sendChat(),
+      incomingFile:s.incomingFile,
+      files:s.files.map(f=>({...f, icon:f.out?'upload':'download', status:f.out?t.sent:t.received})),
+      saveFile:()=>this.setState(st=>({incomingFile:false, files:[...st.files,{name:'rapor.xlsx',size:'860 KB',out:false}]})),
+      declineFile:()=>this.setState({incomingFile:false}),
+      clipRecv:s.clipRecv, dropClip:()=>this.setState({clipRecv:false}),
+      clipSendLabel:s.clipSent?t.clipSent:t.clipSend, sendClip:()=>{ this.setState({clipSent:true}); this.later(()=>this.setState({clipSent:false}),1400); },
+      isRelay:s.mode==='relay', isDirect:s.mode==='direct',
+      segDirect:this.seg(s.mode==='direct'), segRelay:this.seg(s.mode==='relay'),
+      setDirect:()=>this.setState({mode:'direct'}), setRelay:()=>this.setState({mode:'relay'}),
+      tgAutoRe:this.tg(s.autoRe), toggleAutoRe:()=>this.setState({autoRe:!s.autoRe}),
+      tgAdaptive:this.tg(s.adaptive), toggleAdaptive:()=>this.setState({adaptive:!s.adaptive}),
+      onQuality:e=>this.setState({quality:+e.target.value}), onFps:e=>this.setState({fps:+e.target.value}),
+      segLight:this.seg(s.theme==='light'), segDark:this.seg(s.theme==='dark'),
+      setLight:()=>this.setState({theme:'light'}), setDark:()=>this.setState({theme:'dark'}),
+      segTr:this.seg(s.lang==='tr'), segEn:this.seg(s.lang==='en'),
+      setTr:()=>this.setState({lang:'tr'}), setEn:()=>this.setState({lang:'en'})
+    };
+  }
+}
+</script>
+</body>
+</html>
