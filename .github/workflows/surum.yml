@@ -1,0 +1,78 @@
+name: Sürüm
+# Kurulum dosyaları ve indirme paketleri:
+#   Windows: Opendesk-Windows-Kurulum.exe (NSIS), opendesk-windows-x86_64.zip (kurulumsuz)
+#   Linux:   opendesk-linux-x86_64.tar.gz
+# `v*` etiketinde (git tag v0.3.0 && git push origin v0.3.0) GitHub sürümü yayımlanır.
+# Elle çalıştırmada (Actions → Sürüm → Run workflow) yalnızca derlenip sınanır ve
+# dosyalar iş akışı çıktısı olarak indirilebilir.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Sına
+        run: cargo test --all-targets
+      - name: Derle
+        run: cargo build --release --bins
+      - name: Kurulum dosyasını oluştur
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) { choco install nsis -y --no-progress }
+          $nsis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $nsis) { $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe" }
+          & $nsis /DVERSION=$version /DBIN=..\..\target\release packaging\windows\opendesk.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force cikti | Out-Null
+          Move-Item packaging\windows\Opendesk-Windows-Kurulum.exe cikti\
+          Compress-Archive -Path target\release\opendesk.exe, target\release\opendesk-setup.exe, target\release\opendesk-relay.exe, target\release\opendesk-updater.exe, README.md, LICENSE -DestinationPath cikti\opendesk-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: cikti/*
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Bağımlılıklar
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxrandr-dev libxcb1-dev libdbus-1-dev libxkbcommon-dev libxdo-dev libwayland-dev libasound2-dev
+      - name: Sına
+        run: cargo test --all-targets
+      - name: Derle ve paketle
+        run: |
+          cargo build --release --bins
+          mkdir -p paket cikti
+          cp target/release/opendesk target/release/opendesk-setup target/release/opendesk-relay target/release/opendesk-updater README.md LICENSE paket/
+          tar -czf cikti/opendesk-linux-x86_64.tar.gz -C paket .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: cikti/*
+
+  yayimla:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dosyalar
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dosyalar/*
+          generate_release_notes: true

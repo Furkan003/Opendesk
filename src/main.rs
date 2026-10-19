@@ -1,8 +1,10 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod audio;
+mod class_ui;
 mod design;
 mod platform;
+mod pump;
 mod recording;
 mod settings;
 use eframe::egui;
@@ -34,6 +36,20 @@ fn main() -> eframe::Result<()> {
     }
     let smoke = std::env::args().any(|a| a == "--smoke-test");
     let capture = argument_value("--ui-capture").is_some();
+    if let Some(role) = argument_value("--set-role") {
+        // Used by the Windows installer to record the role chosen during setup.
+        let Some(role) = settings::Role::parse(&role) else {
+            eprintln!("Unknown role: {role} (personal, teacher, student)");
+            std::process::exit(2);
+        };
+        let mut stored = settings::Settings::load();
+        stored.role = Some(role);
+        if let Err(e) = stored.save() {
+            eprintln!("Could not save role: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if std::env::args().any(|a| a == "--version") {
         println!("Opendesk {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -56,13 +72,17 @@ fn main() -> eframe::Result<()> {
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1080.0, 760.0])
+                .with_min_inner_size([720.0, 500.0])
+                .with_title("Opendesk")
                 .with_visible(!smoke && !capture)
                 .with_icon(design::icon_rgba()),
             ..Default::default()
         },
         Box::new(move |cc| {
             design::configure_fonts(&cc.egui_ctx);
-            Ok(Box::new(Desk::default()))
+            let mut desk = Desk::default();
+            desk.egui_ctx = cc.egui_ctx.clone();
+            Ok(Box::new(desk))
         }),
     )
 }
@@ -70,6 +90,8 @@ enum UpdateResult {
     Checked(opendesk::update::Available),
     Downloaded(std::path::PathBuf),
 }
+/// About 30 seconds of consecutive capture failures before sharing stops.
+const MAX_CAPTURE_FAILURES: u32 = 120;
 type CaptureSettings = Arc<std::sync::Mutex<(usize, u8, u64, bool, u32)>>;
 fn retry_delay(enabled: bool, attempt: u8) -> Option<Duration> {
     (enabled && attempt < 5).then(|| Duration::from_secs(1u64 << attempt))
@@ -224,6 +246,16 @@ struct Desk {
     transfer_offer: Option<opendesk::file_protocol::Manifest>,
     transfer_status: String,
     settings: settings::Settings,
+    /// This computer's LAN address, shown to viewers on the same network.
+    lan_ip: Option<std::net::IpAddr>,
+    /// Audio playback could not start; do not retry for every packet.
+    audio_failed: bool,
+    class: class_ui::Classroom,
+    computer_name: String,
+    /// Scale the remote screen to the window (otherwise 1:1 with scrolling).
+    fit_to_window: bool,
+    /// A viewer's manual quality change still has to reach the host.
+    pending_feedback: bool,
     device_name: String,
     invite: String,
     permissions: Permissions,
@@ -268,7 +300,9 @@ struct Desk {
     incoming: Option<String>,
     texture: Option<egui::TextureHandle>,
     capture_stop: Arc<AtomicBool>,
-    input: Option<platform::InputController>,
+    /// Decodes frames and injects host input off the UI thread.
+    pump: Option<pump::Pump>,
+    egui_ctx: egui::Context,
     modifiers: egui::Modifiers,
     monitor: usize,
     quality: u8,
@@ -282,7 +316,17 @@ struct Desk {
 }
 impl Default for Desk {
     fn default() -> Self {
-        let connection_settings = settings::Settings::load();
+        let mut connection_settings = settings::Settings::load();
+        if let Some(theme) = argument_value("--ui-theme") {
+            connection_settings.dark = theme == "dark";
+        }
+        if connection_settings.role.is_none()
+            && let Some(role) = settings::Settings::installed_role()
+        {
+            connection_settings.role = Some(role);
+            let _ = connection_settings.save();
+        }
+        let prefs = connection_settings.preferences.clone().sanitized();
         Self {
             transport_ready: false,
             ui_capture: argument_value("--ui-capture").map(std::path::PathBuf::from),
@@ -290,7 +334,14 @@ impl Default for Desk {
             ui_page: match argument_value("--ui-page").as_deref() {
                 Some("devices") => design::Page::Devices,
                 Some("settings") => design::Page::Settings,
-                _ => design::Page::Home,
+                Some("class") => design::Page::Classroom,
+                Some(_) => design::Page::Home,
+                None => match connection_settings.role {
+                    Some(settings::Role::Teacher | settings::Role::Student) => {
+                        design::Page::Classroom
+                    }
+                    _ => design::Page::Home,
+                },
             },
             ui_tab: Some(design::Tab::Chat),
             device_search: String::new(),
@@ -307,48 +358,48 @@ impl Default for Desk {
             use_unattended: false,
             transfer_offer: None,
             transfer_status: String::new(),
-            settings: {
-                let mut settings = settings::Settings::load();
-                if let Some(theme) = argument_value("--ui-theme") {
-                    settings.dark = theme == "dark";
-                }
-                settings
-            },
+            lan_ip: network::local_ip(),
             device_name: String::new(),
             invite: String::new(),
             permissions: Permissions::default(),
             monitors: Vec::new(),
-            capture_settings: Arc::new(std::sync::Mutex::new((0, 65, 6, true, 1920))),
-            max_width: 1920,
+            capture_settings: Arc::new(std::sync::Mutex::new((
+                0,
+                prefs.quality,
+                prefs.fps,
+                true,
+                prefs.max_width,
+            ))),
+            max_width: prefs.max_width,
             actual_fps: 0.0,
-            auto_reconnect: false,
+            auto_reconnect: prefs.auto_reconnect,
             retry_at: None,
             retries: 0,
             fullscreen: false,
-            adaptive: true,
+            adaptive: prefs.adaptive,
             feedback_at: std::time::Instant::now(),
             frame_window: 0,
             bytes_window: 0,
             video_stats: String::new(),
             recorder: None,
-            record_path: "Opendesk-recording.avi".into(),
+            record_path: prefs.record_path.clone(),
             frame_size: None,
             audio_capture: None,
             audio_player: None,
             smoke: std::env::args().any(|a| a == "--smoke-test"),
             smoke_frames: 0,
             relay: connection_settings.relay,
-            relay_address: connection_settings.relay_address,
+            relay_address: connection_settings.relay_address.clone(),
             internet: !connection_settings.manual_route,
             connecting_host: false,
             pending_release: false,
             capture_errors: None,
             connecting: None,
             received_clipboard: None,
-            address: "127.0.0.1:7878".into(),
+            address: String::new(),
             secret: opendesk::unattended::load_pairing_code()
                 .unwrap_or_else(|_| network::generate_code()),
-            bind: "0.0.0.0:7878".into(),
+            bind: prefs.bind.clone(),
             status: "Ready. Both computers must run Opendesk.".into(),
             connection: None,
             hosting: false,
@@ -358,17 +409,24 @@ impl Default for Desk {
             incoming: None,
             texture: None,
             capture_stop: Arc::new(AtomicBool::new(true)),
-            input: None,
+            pump: None,
+            egui_ctx: egui::Context::default(),
             modifiers: egui::Modifiers::NONE,
             monitor: 0,
-            quality: 65,
-            fps: 6,
+            quality: prefs.quality,
+            fps: prefs.fps,
             viewer_focused: false,
             chat: String::new(),
             messages: Vec::new(),
             outgoing: String::new(),
-            inbox: "Opendesk-inbox".into(),
+            inbox: prefs.inbox.clone(),
             incoming_file: None,
+            audio_failed: false,
+            class: class_ui::Classroom::default(),
+            computer_name: class_ui::computer_name(),
+            fit_to_window: true,
+            pending_feedback: false,
+            settings: connection_settings,
         }
     }
 }
@@ -378,6 +436,16 @@ impl Desk {
             .as_ref()
             .is_some_and(|c| c.commands.try_send(command).is_ok())
     }
+    fn attach(&mut self, mut connection: Connection) {
+        self.pump = Some(pump::Pump::attach(&mut connection, self.egui_ctx.clone()));
+        self.connection = Some(connection);
+    }
+    /// Starts or stops injecting the viewer's input on the selected local display.
+    fn set_input(&self, enabled: bool) {
+        if let Some(pump) = &self.pump {
+            pump.set_input(enabled.then_some(self.monitor));
+        }
+    }
     fn stop(&mut self) {
         self.transport_ready = false;
         self.retry_at = None;
@@ -385,6 +453,7 @@ impl Desk {
         self.finish_recording();
         self.audio_capture = None;
         self.audio_player = None;
+        self.audio_failed = false;
         self.connecting = None;
         self.capture_errors = None;
         self.received_clipboard = None;
@@ -394,14 +463,19 @@ impl Desk {
         self.connected = false;
         self.control = false;
         self.incoming = None;
-        self.input = None;
+        self.pump = None;
         platform::stop_capture();
         self.texture = None;
         self.incoming_file = None;
         self.viewer_focused = false;
         self.pending_release = false;
         self.modifiers = egui::Modifiers::NONE;
-        self.status = "Stopped. Remote access is closed.".into();
+        self.status = self
+            .ui_text(
+                "Durduruldu. Uzak erişim kapalı.",
+                "Stopped. Remote access is closed.",
+            )
+            .into();
     }
     fn finish_recording(&mut self) {
         if let Some(mut recorder) = self.recorder.take()
@@ -414,7 +488,7 @@ impl Desk {
         if self.internet {
             match opendesk::p2p::host(&self.secret) {
                 Ok(c) => {
-                    self.connection = Some(c);
+                    self.attach(c);
                     self.hosting = true;
                     self.status =
                         "Sharing by code over the Internet. Nothing is shared until you accept."
@@ -453,7 +527,7 @@ impl Desk {
         } else {
             match network::host(&self.bind, &self.secret) {
                 Ok(c) => {
-                    self.connection = Some(c);
+                    self.attach(c);
                     self.hosting = true;
                     self.status = "Listening. No screen is shared until you accept.".into();
                 }
@@ -476,11 +550,20 @@ impl Desk {
         }
         self.hosting = false;
         let (tx, rx) = std::sync::mpsc::channel();
-        let address = if self.relay {
-            self.relay_address.clone()
+        let address = network::with_default_port(if self.relay {
+            &self.relay_address
         } else {
-            self.address.clone()
-        };
+            &self.address
+        });
+        if !self.internet && address.is_empty() {
+            self.status = self
+                .ui_text(
+                    "Hedef bilgisayarın adresini (IP) yaz.",
+                    "Enter the target computer's address (IP).",
+                )
+                .into();
+            return;
+        }
         let relay = self.relay;
         let internet = self.internet;
         let secret = self.secret.clone();
@@ -499,6 +582,49 @@ impl Desk {
                 let _ = c.commands.try_send(Command::Stop);
             }
         });
+    }
+    fn ui_text<'a>(&self, tr: &'a str, en: &'a str) -> &'a str {
+        if self.settings.english { en } else { tr }
+    }
+    /// Address viewers on the same network use to reach this host.
+    fn shared_address(&self) -> String {
+        if self.relay {
+            return self.relay_address.clone();
+        }
+        let port = self
+            .bind
+            .parse::<std::net::SocketAddr>()
+            .map(|a| a.port())
+            .unwrap_or(7878);
+        match self.lan_ip {
+            Some(ip) => std::net::SocketAddr::new(ip, port).to_string(),
+            None => self.address.clone(),
+        }
+    }
+    fn current_preferences(&self) -> settings::Preferences {
+        settings::Preferences {
+            auto_reconnect: self.auto_reconnect,
+            adaptive: self.adaptive,
+            quality: self.quality,
+            fps: self.fps,
+            max_width: self.max_width,
+            bind: self.bind.clone(),
+            inbox: self.inbox.clone(),
+            record_path: self.record_path.clone(),
+        }
+    }
+    /// Saves changed preferences once the user lets go of the slider or field.
+    fn persist_preferences(&mut self, ctx: &egui::Context) {
+        let current = self.current_preferences();
+        if current != self.settings.preferences
+            && !ctx.is_using_pointer()
+            && ctx.memory(|m| m.focused().is_none())
+        {
+            self.settings.preferences = current;
+            if let Err(e) = self.settings.save() {
+                self.status = e;
+            }
+        }
     }
     fn schedule_retry(&mut self) {
         if let Some(delay) = retry_delay(self.auto_reconnect, self.retries) {
@@ -576,12 +702,8 @@ impl Desk {
             ui.label("Private invitation (contains pairing secret)");
             ui.text_edit_singleline(&mut self.invite);
             if ui.button("Copy invitation").clicked() {
-                let endpoint = if self.relay {
-                    &self.relay_address
-                } else {
-                    &self.address
-                };
-                match opendesk::invite::encode(endpoint, self.relay, &self.secret) {
+                let endpoint = self.shared_address();
+                match opendesk::invite::encode(&endpoint, self.relay, &self.secret) {
                     Ok(code) => {
                         self.invite = code.clone();
                         ctx.copy_text(code);
@@ -688,10 +810,8 @@ impl Desk {
             if !self.send(Command::SetPermissions(self.permissions)) {
                 self.permissions = before;
                 self.status = "Permission queue busy. Try again.".into();
-            } else if !self.permissions.input {
-                self.input = None;
             } else {
-                self.input = platform::InputController::new(self.monitor).ok();
+                self.set_input(self.permissions.input);
             }
         }
         if self.connected && !self.hosting {
@@ -830,7 +950,7 @@ impl Desk {
                         });
                         self.unattended_token.clear();
                     }
-                    self.connection = Some(c);
+                    self.attach(c);
                     self.hosting = self.connecting_host;
                     self.status = "Waiting for connection / acceptance".into();
                 }
@@ -911,24 +1031,19 @@ impl Desk {
                         if let Ok(monitors) = platform::display_list() {
                             self.send(Command::Monitors(monitors));
                         }
-                        self.input = if control {
-                            match platform::InputController::new(self.monitor) {
-                                Ok(c) => Some(c),
-                                Err(e) => {
-                                    self.status = format!("Control unavailable: {e}");
-                                    None
-                                }
-                            }
-                        } else {
-                            None
+                        self.set_input(control);
+                        let Some(tx) = self.connection.as_ref().map(|c| c.commands.clone()) else {
+                            continue;
                         };
                         self.capture_stop = Arc::new(AtomicBool::new(false));
                         let stop = self.capture_stop.clone();
-                        let tx = self.connection.as_ref().unwrap().commands.clone();
                         let capture_settings = self.capture_settings.clone();
                         let (error_tx, error_rx) = std::sync::mpsc::sync_channel(1);
                         self.capture_errors = Some(error_rx);
                         std::thread::spawn(move || {
+                            // Lock screens, UAC prompts and display changes make capture
+                            // fail briefly; only a sustained failure ends the session.
+                            let mut failures = 0u32;
                             while !stop.load(Ordering::Relaxed) {
                                 let (monitor, quality, fps, sharing, max_width) =
                                     *capture_settings.lock().unwrap_or_else(|e| e.into_inner());
@@ -939,10 +1054,19 @@ impl Desk {
                                 }
                                 match platform::capture_display_scaled(monitor, quality, max_width)
                                 {
-                                    Ok(jpeg) => match tx.try_send(Command::Frame(jpeg)) {
-                                        Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                        Err(_) => break,
-                                    },
+                                    Ok(jpeg) => {
+                                        failures = 0;
+                                        match tx.try_send(Command::Frame(jpeg)) {
+                                            Ok(())
+                                            | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                            Err(_) => break,
+                                        }
+                                    }
+                                    Err(_) if failures < MAX_CAPTURE_FAILURES => {
+                                        failures += 1;
+                                        std::thread::sleep(Duration::from_millis(250));
+                                        continue;
+                                    }
                                     Err(error) => {
                                         let _ = error_tx.try_send(error);
                                         let _ = tx.try_send(Command::Stop);
@@ -954,34 +1078,7 @@ impl Desk {
                         });
                     }
                 }
-                Event::Frame { jpeg } => {
-                    if let Ok(img) = decode_frame(&jpeg) {
-                        self.frame_size = Some((img.width(), img.height()));
-                        self.frame_window += 1;
-                        self.bytes_window += jpeg.len();
-                        if let Some(recorder) = &mut self.recorder
-                            && let Err(e) =
-                                recorder.realtime_frame(&jpeg, img.width(), img.height())
-                        {
-                            self.status = e;
-                            self.finish_recording();
-                        }
-                        let rgba = img.to_rgba8();
-                        let color = egui::ColorImage::from_rgba_unmultiplied(
-                            [rgba.width() as usize, rgba.height() as usize],
-                            &rgba,
-                        );
-                        if let Some(t) = &mut self.texture {
-                            t.set(color, egui::TextureOptions::LINEAR);
-                        } else {
-                            self.texture = Some(ctx.load_texture(
-                                "remote",
-                                color,
-                                egui::TextureOptions::LINEAR,
-                            ));
-                        }
-                    }
-                }
+                Event::Frame { .. } => {}
                 Event::IncomingFile { name, bytes } => {
                     self.incoming_file = Some((name, bytes));
                 }
@@ -1008,16 +1105,8 @@ impl Desk {
                         self.messages.remove(0);
                     }
                 }
-                Event::Input(input) => {
-                    if self.hosting
-                        && self.connected
-                        && self.control
-                        && let Some(controller) = &mut self.input
-                        && let Err(e) = controller.apply(input)
-                    {
-                        self.status = format!("Input: {e}");
-                    }
-                }
+                // Injected by the pump thread so control keeps working while minimized.
+                Event::Input(_) => {}
                 Event::Clipboard(text) => self.received_clipboard = Some(text),
                 Event::Permissions(p) => {
                     self.permissions = p;
@@ -1034,18 +1123,16 @@ impl Desk {
                         self.incoming_file = None;
                     }
                     self.control = p.input;
-                    if !p.input {
-                        self.input = None;
-                    } else if self.hosting {
-                        self.input = platform::InputController::new(self.monitor).ok();
+                    if self.hosting {
+                        self.set_input(p.input);
                     }
                 }
                 Event::Monitors(monitors) => self.monitors = monitors,
                 Event::SelectMonitor(index) => {
                     self.finish_recording();
                     self.monitor = index;
-                    if self.control {
-                        self.input = platform::InputController::new(index).ok();
+                    if self.hosting {
+                        self.set_input(self.control);
                     }
                 }
                 Event::VideoFeedback { max_fps, quality } => {
@@ -1069,9 +1156,15 @@ impl Desk {
                     channels,
                     pcm,
                 } => {
-                    if !self.hosting && self.permissions.audio {
+                    if !self.hosting && self.permissions.audio && !self.audio_failed {
                         if self.audio_player.is_none() {
-                            self.audio_player = audio::AudioPlayer::new().ok();
+                            match audio::AudioPlayer::new() {
+                                Ok(player) => self.audio_player = Some(player),
+                                Err(e) => {
+                                    self.audio_failed = true;
+                                    self.status = format!("Audio playback unavailable: {e}");
+                                }
+                            }
                         }
                         if let Some(player) = &mut self.audio_player
                             && let Err(e) = player.push(audio::AudioPacket {
@@ -1094,6 +1187,7 @@ impl Desk {
                 }
             }
         }
+        self.take_frame(ctx);
         if self.feedback_at.elapsed() >= Duration::from_secs(2) {
             self.actual_fps = self.frame_window as f32 / self.feedback_at.elapsed().as_secs_f32();
             if self.connected && !self.hosting && self.adaptive {
@@ -1121,16 +1215,62 @@ impl Desk {
     }
 }
 impl Desk {
+    fn take_frame(&mut self, ctx: &egui::Context) {
+        let Some(pump) = &self.pump else { return };
+        let (latest, frames, bytes) = {
+            let mut slot = pump.frames.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                slot.latest.take(),
+                std::mem::take(&mut slot.frames),
+                std::mem::take(&mut slot.bytes),
+            )
+        };
+        self.frame_window += frames;
+        self.bytes_window += bytes;
+        let Some((jpeg, color)) = latest else { return };
+        if !self.permissions.screen {
+            return;
+        }
+        let (w, h) = (color.size[0] as u32, color.size[1] as u32);
+        self.frame_size = Some((w, h));
+        if let Some(recorder) = &mut self.recorder
+            && let Err(e) = recorder.realtime_frame(&jpeg, w, h)
+        {
+            self.status = e;
+            self.finish_recording();
+        }
+        if let Some(t) = &mut self.texture {
+            t.set(color, egui::TextureOptions::LINEAR);
+        } else {
+            self.texture = Some(ctx.load_texture("remote", color, egui::TextureOptions::LINEAR));
+        }
+    }
     fn remote_canvas(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        if let Some(texture) = &self.texture {
-            let available = ui.available_size();
+        if let Some(texture) = self.texture.clone() {
             let size = texture.size_vec2();
-            let scale = (available.x / size.x).min(available.y / size.y).min(1.0);
-            let response = ui.add(
-                egui::Image::new(texture)
-                    .fit_to_exact_size(size * scale)
-                    .sense(egui::Sense::click_and_drag()),
-            );
+            let response = if self.fit_to_window {
+                // Scale to the window in both directions and center, keeping aspect ratio.
+                let available = ui.available_size();
+                let scale = (available.x / size.x).min(available.y / size.y).max(0.05);
+                let (area, _) = ui.allocate_exact_size(available, egui::Sense::hover());
+                ui.put(
+                    egui::Rect::from_center_size(area.center(), size * scale),
+                    egui::Image::new(&texture)
+                        .fit_to_exact_size(size * scale)
+                        .sense(egui::Sense::click_and_drag()),
+                )
+            } else {
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Image::new(&texture)
+                                .fit_to_exact_size(size)
+                                .sense(egui::Sense::click_and_drag()),
+                        )
+                    })
+                    .inner
+            };
             if self.control && self.connected && !self.hosting {
                 if response.hovered() {
                     response.request_focus();
@@ -1172,12 +1312,21 @@ impl Desk {
                 self.modifiers = final_modifiers;
             }
         } else {
+            let text = if self.hosting && self.connected {
+                self.ui_text(
+                    "Ekran paylaşımı açık. Erişimi kapatmak için Bitir'e bas.",
+                    "Screen sharing active. Press End to revoke access.",
+                )
+            } else if self.connected && !self.permissions.screen {
+                self.ui_text(
+                    "Karşı taraf ekran paylaşımını kapattı.",
+                    "The host turned off screen sharing.",
+                )
+            } else {
+                self.ui_text("Görüntü bekleniyor…", "Waiting for the remote screen…")
+            };
             ui.centered_and_justified(|ui| {
-                ui.label(if self.hosting && self.connected {
-                    "Screen sharing active. Use STOP to revoke access."
-                } else {
-                    "Connect to a host to view its screen."
-                });
+                ui.label(text);
             });
         }
     }
@@ -1194,8 +1343,10 @@ impl eframe::App for Desk {
             return;
         }
         self.poll(ctx);
+        self.poll_class(ctx);
         ctx.request_repaint_after(Duration::from_millis(50));
         self.design_ui(ctx);
+        self.persist_preferences(ctx);
         if let Some(path) = &self.ui_capture {
             for event in ctx.input(|i| i.events.clone()) {
                 if let egui::Event::Screenshot { image, .. } = event {
@@ -1222,6 +1373,11 @@ impl eframe::App for Desk {
 }
 impl Drop for Desk {
     fn drop(&mut self) {
+        let current = self.current_preferences();
+        if current != self.settings.preferences {
+            self.settings.preferences = current;
+            let _ = self.settings.save();
+        }
         self.stop();
     }
 }

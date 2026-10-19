@@ -1,6 +1,7 @@
 //! Opendesk session policy, encrypted transport, and explicit file transfer.
 //! Desktop capture and input integration live in the executable's platform module.
 
+pub mod classroom;
 pub mod file_protocol;
 #[cfg(feature = "desktop")]
 pub mod installer;

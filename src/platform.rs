@@ -132,6 +132,17 @@ pub struct InputController {
     enigo: Option<Enigo>,
     held: Vec<InputEvent>,
     monitor: usize,
+    /// Display origin and size, cached so pointer moves do not enumerate screens.
+    bounds: Option<(i32, i32, u32, u32)>,
+}
+fn display_bounds(monitor: usize) -> Result<(i32, i32, u32, u32), String> {
+    let screen = screenshots::Screen::all()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .nth(monitor)
+        .ok_or("No selected display")?;
+    let info = screen.display_info;
+    Ok((info.x, info.y, info.width, info.height))
 }
 impl InputController {
     pub fn new(monitor: usize) -> Result<Self, String> {
@@ -145,12 +156,14 @@ impl InputController {
                 enigo: None,
                 held: Vec::new(),
                 monitor,
+                bounds: None,
             });
         }
         Ok(Self {
             enigo: Some(Enigo::new(&Settings::default()).map_err(|e| e.to_string())?),
             held: Vec::new(),
             monitor,
+            bounds: display_bounds(monitor).ok(),
         })
     }
     pub fn apply(&mut self, event: InputEvent) -> Result<(), String> {
@@ -197,18 +210,17 @@ impl InputController {
                 if !x.is_finite() || !y.is_finite() {
                     return Err("Invalid pointer coordinate".into());
                 }
-                let screen = screenshots::Screen::all()
-                    .map_err(|e| e.to_string())?
-                    .into_iter()
-                    .nth(self.monitor)
-                    .ok_or("No selected display")?;
+                let (left, top, width, height) = match self.bounds {
+                    Some(bounds) => bounds,
+                    None => {
+                        let bounds = display_bounds(self.monitor)?;
+                        self.bounds = Some(bounds);
+                        bounds
+                    }
+                };
                 enigo.move_mouse(
-                    screen.display_info.x
-                        + (x.clamp(0.0, 1.0) * screen.display_info.width.saturating_sub(1) as f32)
-                            as i32,
-                    screen.display_info.y
-                        + (y.clamp(0.0, 1.0) * screen.display_info.height.saturating_sub(1) as f32)
-                            as i32,
+                    left + (x.clamp(0.0, 1.0) * width.saturating_sub(1) as f32) as i32,
+                    top + (y.clamp(0.0, 1.0) * height.saturating_sub(1) as f32) as i32,
                     Coordinate::Abs,
                 )
             }

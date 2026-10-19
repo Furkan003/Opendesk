@@ -36,6 +36,7 @@ pub fn icon_rgba() -> egui::IconData {
 pub enum Page {
     Home,
     Devices,
+    Classroom,
     Settings,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -45,18 +46,18 @@ pub enum Tab {
     Clipboard,
 }
 #[derive(Clone, Copy)]
-struct Palette {
-    bg: Color32,
-    side: Color32,
-    card: Color32,
-    line: Color32,
-    ink: Color32,
-    muted: Color32,
-    accent: Color32,
-    soft: Color32,
-    green: Color32,
-    red: Color32,
-    field: Color32,
+pub(crate) struct Palette {
+    pub(crate) bg: Color32,
+    pub(crate) side: Color32,
+    pub(crate) card: Color32,
+    pub(crate) line: Color32,
+    pub(crate) ink: Color32,
+    pub(crate) muted: Color32,
+    pub(crate) accent: Color32,
+    pub(crate) soft: Color32,
+    pub(crate) green: Color32,
+    pub(crate) red: Color32,
+    pub(crate) field: Color32,
 }
 impl Palette {
     fn new(dark: bool) -> Self {
@@ -118,27 +119,49 @@ pub fn configure_fonts(ctx: &egui::Context) {
         .entry(egui::FontFamily::Monospace)
         .or_default()
         .insert(0, "Plex Mono".into());
-    f.families.insert(
-        egui::FontFamily::Name("Plex Semibold".into()),
-        vec!["Plex Semibold".into()],
-    );
+    // Symbols such as ● ▤ ✋ 🔒 come from egui's bundled fonts; headings need the
+    // same fallbacks or those glyphs render as empty boxes.
+    let fallbacks: Vec<String> = ["NotoEmoji-Regular", "emoji-icon-font", "Hack"]
+        .into_iter()
+        .filter(|name| f.font_data.contains_key(*name))
+        .map(String::from)
+        .collect();
+    let proportional = f
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default();
+    for name in &fallbacks {
+        if !proportional.contains(name) {
+            proportional.push(name.clone());
+        }
+    }
+    let mut semibold = vec!["Plex Semibold".to_owned(), "Plex Sans".to_owned()];
+    semibold.extend(fallbacks);
+    f.families
+        .insert(egui::FontFamily::Name("Plex Semibold".into()), semibold);
     ctx.set_fonts(f);
 }
-fn card(p: Palette) -> egui::Frame {
+pub(crate) fn card(p: Palette) -> egui::Frame {
     egui::Frame::new()
         .fill(p.card)
         .stroke(Stroke::new(1.0_f32, p.line))
         .corner_radius(14)
         .inner_margin(22)
 }
-fn label(ui: &mut egui::Ui, text: &str, size: f32, color: Color32) {
+pub(crate) fn label(ui: &mut egui::Ui, text: &str, size: f32, color: Color32) {
     let mut text = RichText::new(text).size(size).color(color);
     if size >= 16.0 {
         text = text.family(egui::FontFamily::Name("Plex Semibold".into()));
     }
     ui.label(text);
 }
-fn button(ui: &mut egui::Ui, text: &str, p: Palette, primary: bool, width: f32) -> egui::Response {
+pub(crate) fn button(
+    ui: &mut egui::Ui,
+    text: &str,
+    p: Palette,
+    primary: bool,
+    width: f32,
+) -> egui::Response {
     ui.add_sized(
         [width, 40.],
         egui::Button::new(RichText::new(text).size(14.).color(if primary {
@@ -219,7 +242,7 @@ fn monitor(ui: &mut egui::Ui, size: f32, color: Color32) {
     );
 }
 impl Desk {
-    fn tr<'a>(&self, tr: &'a str, en: &'a str) -> &'a str {
+    pub(crate) fn tr<'a>(&self, tr: &'a str, en: &'a str) -> &'a str {
         if self.settings.english { en } else { tr }
     }
     fn status_text(&self) -> &str {
@@ -286,8 +309,29 @@ impl Desk {
             self.fullscreen = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
         }
+        if self.student_takeover(ctx) {
+            return;
+        }
+        if self.settings.role.is_none() && self.ui_capture.is_none() {
+            self.role_design(ctx, p);
+            return;
+        }
         if self.connected {
             self.session_design(ctx, p);
+        } else if self.ui_page == Page::Classroom
+            && self.connecting.is_none()
+            && (self.hosting || self.connection.is_none())
+            && self.retry_at.is_none()
+        {
+            // The class view sizes itself to the window, so it is not in a scroll area.
+            self.navigation(ctx, p);
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(p.bg)
+                        .inner_margin(egui::Margin::symmetric(24, 20)),
+                )
+                .show(ctx, |ui| self.class_design(ui, ctx, p));
         } else {
             self.navigation(ctx, p);
             egui::CentralPanel::default()
@@ -305,7 +349,7 @@ impl Desk {
                             self.connecting_design(ui, p);
                         } else {
                             match self.ui_page {
-                                Page::Home => self.home_design(ui, ctx, p),
+                                Page::Home | Page::Classroom => self.home_design(ui, ctx, p),
                                 Page::Devices => self.devices_design(ui, p),
                                 Page::Settings => self.settings_design(ui, ctx, p),
                             }
@@ -316,8 +360,10 @@ impl Desk {
         self.request_design(ctx, p);
     }
     fn navigation(&mut self, ctx: &egui::Context, p: Palette) {
+        // Narrow windows (small laptops, split screens) get an icon-only sidebar.
+        let compact = ctx.screen_rect().width() < 900.;
         egui::SidePanel::left("design-navigation")
-            .exact_width(216.)
+            .exact_width(if compact { 64. } else { 216. })
             .resizable(false)
             .frame(
                 egui::Frame::new()
@@ -326,19 +372,26 @@ impl Desk {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add_space(8.);
+                    ui.add_space(if compact { 6. } else { 8. });
                     logo(ui, 28., self.settings.logo, p);
-                    label(ui, "opendesk", 18., p.ink);
+                    if !compact {
+                        label(ui, "opendesk", 18., p.ink);
+                    }
                 });
                 ui.add_space(22.);
                 ui.spacing_mut().item_spacing.y = 2.;
                 for (page, icon, tr, en) in [
                     (Page::Home, "↗", "Bağlan", "Connect"),
                     (Page::Devices, "▤", "Cihazlar", "Devices"),
+                    (Page::Classroom, "🎓", "Sınıf", "Classroom"),
                     (Page::Settings, "⚙", "Ayarlar", "Settings"),
                 ] {
                     let selected = self.ui_page == page;
-                    let text = format!("{icon}    {}", self.tr(tr, en));
+                    let text = if compact {
+                        icon.to_owned()
+                    } else {
+                        format!("{icon}    {}", self.tr(tr, en))
+                    };
                     let (rect, response) = ui.allocate_exact_size(
                         Vec2::new(ui.available_width(), 38.),
                         egui::Sense::click(),
@@ -363,81 +416,78 @@ impl Desk {
                         egui::FontId::proportional(14.),
                         if selected { p.ink } else { p.muted },
                     );
+                    let response = if compact {
+                        response.on_hover_text(self.tr(tr, en))
+                    } else {
+                        response
+                    };
                     if response.clicked() {
                         self.ui_page = page;
                     }
                 }
                 ui.spacing_mut().item_spacing.y = 10.;
+                let (online, state) = if self.class.teacher_active() {
+                    (true, self.tr("Sınıf açık", "Class open"))
+                } else if self.class.student_active() {
+                    (true, self.tr("Sınıfta", "In class"))
+                } else if self.hosting && self.connection.is_some() {
+                    (true, self.tr("Paylaşım açık", "Sharing on"))
+                } else {
+                    (false, self.tr("Paylaşım kapalı", "Sharing off"))
+                };
+                let theme = if self.settings.dark { "☀" } else { "🌙" };
+                let language = if self.settings.english { "TR" } else { "EN" };
+                let mut toggle_theme = false;
+                let mut toggle_language = false;
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    if compact {
+                        let small = |text: &str| {
+                            egui::Button::new(RichText::new(text).size(12.))
+                                .wrap_mode(egui::TextWrapMode::Extend)
+                        };
+                        toggle_language = ui.add_sized([40., 30.], small(language)).clicked();
+                        toggle_theme = ui.add_sized([40., 30.], small(theme)).clicked();
+                        ui.label(RichText::new("●").size(14.).color(if online {
+                            p.green
+                        } else {
+                            p.line
+                        }))
+                        .on_hover_text(format!("{state} · {}", self.computer_name));
+                        return;
+                    }
                     ui.horizontal(|ui| {
-                        if ui
-                            .add_sized(
-                                [125., 32.],
-                                egui::Button::new(self.tr(
-                                    if self.settings.dark {
-                                        "☀ Açık"
-                                    } else {
-                                        "☾ Koyu"
-                                    },
-                                    if self.settings.dark {
-                                        "☀ Light"
-                                    } else {
-                                        "☾ Dark"
-                                    },
-                                )),
-                            )
-                            .clicked()
-                        {
-                            self.settings.dark = !self.settings.dark;
-                            self.persist_design();
-                        }
-                        if ui
-                            .add_sized(
-                                [50., 32.],
-                                egui::Button::new(if self.settings.english { "TR" } else { "EN" }),
-                            )
-                            .clicked()
-                        {
-                            self.settings.english = !self.settings.english;
-                            self.persist_design();
-                        }
+                        let text = format!(
+                            "{theme} {}",
+                            if self.settings.dark {
+                                self.tr("Açık", "Light")
+                            } else {
+                                self.tr("Koyu", "Dark")
+                            }
+                        );
+                        toggle_theme = ui.add_sized([125., 32.], egui::Button::new(text)).clicked();
+                        toggle_language = ui
+                            .add_sized([50., 32.], egui::Button::new(language))
+                            .clicked();
                     });
                     card(p).inner_margin(10).corner_radius(9).show(ui, |ui| {
                         ui.set_min_width(170.);
                         ui.horizontal(|ui| {
-                            label(
-                                ui,
-                                "●",
-                                12.,
-                                if self.connection.is_some() {
-                                    p.green
-                                } else {
-                                    p.line
-                                },
-                            );
+                            label(ui, "●", 12., if online { p.green } else { p.line });
                             ui.vertical(|ui| {
-                                label(
-                                    ui,
-                                    if self.connection.is_some() {
-                                        self.tr("Bağlantı bekleniyor", "Waiting for connection")
-                                    } else {
-                                        self.tr("Paylaşım kapalı", "Sharing off")
-                                    },
-                                    12.,
-                                    p.ink,
-                                );
-                                label(
-                                    ui,
-                                    &std::env::var("COMPUTERNAME")
-                                        .or_else(|_| std::env::var("HOSTNAME"))
-                                        .unwrap_or_else(|_| "Opendesk".into()),
-                                    11.,
-                                    p.muted,
-                                );
+                                label(ui, state, 12., p.ink);
+                                label(ui, &self.computer_name, 11., p.muted);
                             });
                         });
                     });
                 });
+                if toggle_theme {
+                    self.settings.dark = !self.settings.dark;
+                    self.persist_design();
+                }
+                if toggle_language {
+                    self.settings.english = !self.settings.english;
+                    self.persist_design();
+                }
             });
     }
     fn home_design(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, p: Palette) {
@@ -466,8 +516,132 @@ impl Desk {
         label(ui, self.status_text(), 12., p.muted);
     }
     fn share_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, p: Palette) {
-        card(p).show(ui,|ui|{ui.horizontal(|ui|{monitor(ui,30.,p.accent);ui.vertical(|ui|{label(ui,self.tr("Bu bilgisayarı paylaş","Share this computer"),16.,p.ink);label(ui,if self.hosting&&self.connection.is_some(){self.tr("Bağlantı bekleniyor…","Waiting for a connection…")}else{self.tr("Paylaşım kapalı","Sharing is off")},12.,p.muted);});});ui.add_space(12.);if self.hosting&&self.connection.is_some(){label(ui,self.tr("Davet kodu","Invite code"),12.,p.muted);egui::Frame::new().fill(p.field).stroke(Stroke::new(1.0_f32,p.line)).corner_radius(10).inner_margin(14).show(ui,|ui|{ui.add(egui::Label::new(RichText::new(&self.secret).monospace().size(15.)).wrap());});let w=(ui.available_width()-8.)/2.;ui.horizontal(|ui|{if button(ui,self.tr("Kodu kopyala","Copy code"),p,true,w).clicked(){ctx.copy_text(self.secret.clone());}
-if button(ui,self.tr("Davet bağlantısı","Copy invite"),p,false,w).clicked(){let endpoint=if self.relay{&self.relay_address}else{&self.address};match opendesk::invite::encode(endpoint,self.relay,&self.secret){Ok(code)=>ctx.copy_text(code),Err(e)=>self.status=e}}});label(ui,self.tr("Ulaşılabilir adresi ayarlardan gir.","Set a reachable address in Settings."),11.,p.muted);}else{label(ui,self.tr("Paylaşımı başlat, kodu karşı tarafa ilet ve bağlanma isteğini onayla. Erişimi istediğin an durdurabilirsin.","Start sharing, send your code, then approve their request. You can stop access at any time."),13.,p.muted);}ui.add_space(8.);ui.separator();ui.checkbox(&mut self.permissions.input,if self.settings.english{"Allow mouse and keyboard control"}else{"Fare ve klavye kontrolüne izin ver"});ui.separator();ui.horizontal(|ui|{label(ui,self.tr("Paylaşılan ekran","Shared display"),13.,p.muted);egui::ComboBox::from_id_salt("home-monitor").selected_text(format!("{} {}",self.tr("Ekran","Display"),self.monitor+1)).show_ui(ui,|ui|{for i in 0..platform_count(){ui.selectable_value(&mut self.monitor,i,format!("{} {}",if self.settings.english{"Display"}else{"Ekran"},i+1));}});});ui.add_space(10.);let hosting=self.hosting&&(self.connection.is_some()||self.connecting.is_some());if hosting{if button(ui,self.tr("Paylaşımı durdur","Stop sharing"),p,false,ui.available_width()).clicked(){self.stop();}}else if ui.add_enabled(self.connection.is_none()&&self.connecting.is_none(),egui::Button::new(RichText::new(self.tr("Paylaşımı başlat","Start sharing")).color(Color32::WHITE)).fill(p.accent).min_size(Vec2::new(ui.available_width(),40.))).clicked(){self.retries=0;self.connect_host();}});
+        let sharing = self.hosting && self.connection.is_some();
+        card(p).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                monitor(ui, 30., p.accent);
+                ui.vertical(|ui| {
+                    label(
+                        ui,
+                        self.tr("Bu bilgisayarı paylaş", "Share this computer"),
+                        16.,
+                        p.ink,
+                    );
+                    label(
+                        ui,
+                        if sharing {
+                            self.tr("Bağlantı bekleniyor…", "Waiting for a connection…")
+                        } else {
+                            self.tr("Paylaşım kapalı", "Sharing is off")
+                        },
+                        12.,
+                        p.muted,
+                    );
+                });
+            });
+            ui.add_space(12.);
+            if sharing {
+                label(ui, self.tr("Bağlantı kodu", "Connection code"), 12., p.muted);
+                egui::Frame::new()
+                    .fill(p.field)
+                    .stroke(Stroke::new(1.0_f32, p.line))
+                    .corner_radius(10)
+                    .inner_margin(14)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(RichText::new(&self.secret).monospace().size(15.))
+                                .wrap(),
+                        );
+                    });
+                if !self.internet {
+                    // Viewers on the same network need this address together with the code.
+                    let address = self.shared_address();
+                    ui.horizontal_wrapped(|ui| {
+                        label(ui, self.tr("Bu bilgisayarın adresi:", "This computer's address:"), 12., p.muted);
+                        ui.label(RichText::new(&address).monospace().strong());
+                    });
+                }
+                let w = ((ui.available_width() - 8.) / 2.).max(80.);
+                ui.horizontal_wrapped(|ui| {
+                    if button(ui, self.tr("Kodu kopyala", "Copy code"), p, true, w).clicked() {
+                        ctx.copy_text(self.secret.clone());
+                    }
+                    if !self.internet
+                        && button(ui, self.tr("Davet bağlantısı", "Copy invite"), p, false, w)
+                            .clicked()
+                    {
+                        match opendesk::invite::encode(
+                            &self.shared_address(),
+                            self.relay,
+                            &self.secret,
+                        ) {
+                            Ok(code) => ctx.copy_text(code),
+                            Err(e) => self.status = e,
+                        }
+                    }
+                });
+            } else {
+                label(
+                    ui,
+                    self.tr(
+                        "Paylaşımı başlat, kodu karşı tarafa ilet ve bağlanma isteğini onayla. Erişimi istediğin an durdurabilirsin.",
+                        "Start sharing, send your code, then approve their request. You can stop access at any time.",
+                    ),
+                    13.,
+                    p.muted,
+                );
+            }
+            ui.add_space(8.);
+            ui.separator();
+            let control = self
+                .tr(
+                    "Fare ve klavye kontrolüne izin ver",
+                    "Allow mouse and keyboard control",
+                )
+                .to_owned();
+            ui.checkbox(&mut self.permissions.input, control);
+            ui.separator();
+            ui.horizontal(|ui| {
+                label(ui, self.tr("Paylaşılan ekran", "Shared display"), 13., p.muted);
+                let display = self.tr("Ekran", "Display").to_owned();
+                egui::ComboBox::from_id_salt("home-monitor")
+                    .selected_text(format!("{display} {}", self.monitor + 1))
+                    .show_ui(ui, |ui| {
+                        for i in 0..platform_count() {
+                            ui.selectable_value(&mut self.monitor, i, format!("{display} {}", i + 1));
+                        }
+                    });
+            });
+            ui.add_space(10.);
+            let hosting = self.hosting && (self.connection.is_some() || self.connecting.is_some());
+            if hosting {
+                if button(
+                    ui,
+                    self.tr("Paylaşımı durdur", "Stop sharing"),
+                    p,
+                    false,
+                    ui.available_width(),
+                )
+                .clicked()
+                {
+                    self.stop();
+                }
+            } else if ui
+                .add_enabled(
+                    self.connection.is_none() && self.connecting.is_none(),
+                    egui::Button::new(
+                        RichText::new(self.tr("Paylaşımı başlat", "Start sharing"))
+                            .color(Color32::WHITE),
+                    )
+                    .fill(p.accent)
+                    .min_size(Vec2::new(ui.available_width(), 40.)),
+                )
+                .clicked()
+            {
+                self.retries = 0;
+                self.connect_host();
+            }
+        });
     }
     fn connect_card(&mut self, ui: &mut egui::Ui, p: Palette) {
         card(p).show(ui, |ui| {
@@ -497,7 +671,11 @@ if button(ui,self.tr("Davet bağlantısı","Copy invite"),p,false,w).clicked(){l
                     .font(egui::TextStyle::Monospace)
                     .desired_width(f32::INFINITY)
                     .min_size(Vec2::new(0., 40.))
-                    .hint_text("od2:…"),
+                    .hint_text(if self.settings.english {
+                        "Connection code or od2: invite"
+                    } else {
+                        "Bağlantı kodu veya od2: daveti"
+                    }),
             );
             if !self.internet {
                 ui.label(self.tr("Hedef adresi (IP:port)", "Target address (IP:port)"));
@@ -508,7 +686,8 @@ if button(ui,self.tr("Davet bağlantısı","Copy invite"),p,false,w).clicked(){l
                         &mut self.address
                     })
                     .desired_width(f32::INFINITY)
-                    .font(egui::TextStyle::Monospace),
+                    .font(egui::TextStyle::Monospace)
+                    .hint_text("192.168.1.20:7878"),
                 );
             }
             let enabled = !self.connection_input.trim().is_empty()
@@ -557,8 +736,8 @@ if button(ui,self.tr("Davet bağlantısı","Copy invite"),p,false,w).clicked(){l
                     )
                 } else {
                     self.tr(
-                        "Kod ile bağlanırken hedef adresi aşağıya yaz.",
-                        "For a code, enter the target address below.",
+                        "Aynı ağda: karşı bilgisayarın IP adresini ve kodunu yaz.",
+                        "Same network: enter the other computer's IP address and code.",
                     )
                 },
                 11.,
@@ -904,6 +1083,37 @@ if button(ui,self.tr("Davet bağlantısı","Copy invite"),p,false,w).clicked(){l
             ui.text_edit_singleline(&mut self.record_path);
         });
         ui.add_space(12.);
+        label(ui, self.tr("KULLANIM", "USAGE"), 12., p.muted);
+        card(p).inner_margin(16).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            let before = self.settings.role;
+            let mut role = before.unwrap_or(settings::Role::Personal);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(self.tr("Bu bilgisayar", "This computer is"));
+                for (value, tr, en) in [
+                    (settings::Role::Personal, "Bireysel", "Personal"),
+                    (settings::Role::Teacher, "Öğretmen", "Teacher"),
+                    (settings::Role::Student, "Öğrenci", "Student"),
+                ] {
+                    let text = self.tr(tr, en).to_owned();
+                    ui.selectable_value(&mut role, value, text);
+                }
+            });
+            label(
+                ui,
+                self.tr(
+                    "Uygulamanın hangi ekranla açılacağını belirler; tüm özellikler her rolde kullanılabilir.",
+                    "Sets the start screen; every feature stays available in every role.",
+                ),
+                11.,
+                p.muted,
+            );
+            if Some(role) != before {
+                self.settings.role = Some(role);
+                self.persist_design();
+            }
+        });
+        ui.add_space(12.);
         label(ui, self.tr("GÖRÜNÜM", "APPEARANCE"), 12., p.muted);
         card(p).inner_margin(16).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -1107,10 +1317,7 @@ impl Desk {
                                     {
                                         self.finish_recording();
                                         self.monitor = i;
-                                        if self.control {
-                                            self.input =
-                                                crate::platform::InputController::new(i).ok();
-                                        }
+                                        self.set_input(self.control);
                                     }
                                 }
                             });
@@ -1139,6 +1346,7 @@ impl Desk {
                             self.monitor = id;
                         }
                     }
+                    let before = (self.quality, self.fps);
                     ui.menu_button(self.tr("Kalite", "Quality"), |ui| {
                         ui.checkbox(
                             &mut self.adaptive,
@@ -1152,6 +1360,26 @@ impl Desk {
                         ui.add(egui::Slider::new(&mut self.fps, 1..=30).text("FPS"));
                         ui.add(egui::Slider::new(&mut self.max_width, 640..=3840).text("px"));
                     });
+                    // The host encodes the video, so a viewer's manual choice is sent there.
+                    if !self.hosting && before != (self.quality, self.fps) {
+                        self.pending_feedback = true;
+                    }
+                    if self.pending_feedback && !ctx.is_using_pointer() {
+                        self.pending_feedback = !self.send(Command::VideoFeedback {
+                            max_fps: self.fps.clamp(1, 30) as u8,
+                            quality: self.quality,
+                        });
+                    }
+                    if !self.hosting
+                        && ui
+                            .selectable_label(
+                                self.fit_to_window,
+                                self.tr("Pencereye sığdır", "Fit to window"),
+                            )
+                            .clicked()
+                    {
+                        self.fit_to_window = !self.fit_to_window;
+                    }
                     for (tab, tr, en) in [
                         (Tab::Chat, "Sohbet", "Chat"),
                         (Tab::Files, "Dosyalar", "Files"),
@@ -1191,7 +1419,14 @@ impl Desk {
                             }
                         }
                     }
-                    if ui.button(self.tr("Tam ekran", "Fullscreen")).clicked() {
+                    if ui
+                        .button(if self.fullscreen {
+                            self.tr("Tam ekrandan çık (Esc)", "Exit fullscreen (Esc)")
+                        } else {
+                            self.tr("Tam ekran", "Fullscreen")
+                        })
+                        .clicked()
+                    {
                         self.fullscreen = !self.fullscreen;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
                     }
@@ -1255,46 +1490,46 @@ impl Desk {
                                 self.permissions = old;
                             } else {
                                 self.control = self.permissions.input;
-                                self.input = if self.control {
-                                    crate::platform::InputController::new(self.monitor).ok()
-                                } else {
-                                    None
-                                };
+                                self.set_input(self.control);
                             }
                         }
                     });
                 });
             });
-        egui::TopBottomPanel::bottom("session-metrics")
-            .frame(egui::Frame::new().fill(p.side).inner_margin(8))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!(
-                            "{:.1} fps  ·  {}",
-                            self.actual_fps,
-                            if self.internet {
-                                "internet"
-                            } else if self.relay {
-                                "relay"
-                            } else {
-                                self.tr("doğrudan", "direct")
-                            }
-                        ))
-                        .monospace()
-                        .size(11.)
-                        .color(p.muted),
-                    );
-                    label(ui, &self.video_stats, 11., p.muted);
-                    if self.recorder.is_some() {
-                        label(ui, self.tr("● KAYITTA", "● RECORDING"), 11., p.red);
-                    }
+        if !self.fullscreen {
+            egui::TopBottomPanel::bottom("session-metrics")
+                .frame(egui::Frame::new().fill(p.side).inner_margin(8))
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "{:.1} fps  ·  {}",
+                                self.actual_fps,
+                                if self.internet {
+                                    "internet"
+                                } else if self.relay {
+                                    "relay"
+                                } else {
+                                    self.tr("doğrudan", "direct")
+                                }
+                            ))
+                            .monospace()
+                            .size(11.)
+                            .color(p.muted),
+                        );
+                        label(ui, &self.video_stats, 11., p.muted);
+                        if self.recorder.is_some() {
+                            label(ui, self.tr("● KAYITTA", "● RECORDING"), 11., p.red);
+                        }
+                    });
                 });
-            });
-        if let Some(tab) = self.ui_tab {
+        }
+        if let Some(tab) = self.ui_tab.filter(|_| !self.fullscreen) {
+            let width = ctx.screen_rect().width();
             egui::SidePanel::right("session-tools")
-                .exact_width(320.)
-                .resizable(false)
+                .default_width(320_f32.min(width * 0.35))
+                .width_range(240.0..=(width * 0.5).max(260.))
+                .resizable(true)
                 .frame(egui::Frame::new().fill(p.card).inner_margin(14))
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
@@ -1312,12 +1547,38 @@ impl Desk {
                         }
                     });
                     ui.separator();
-                    egui::ScrollArea::vertical().show(ui, |ui| match tab {
-                        Tab::Chat => self.chat_design(ui, p),
-                        Tab::Files => self.files_design(ui, p),
-                        Tab::Clipboard => self.clipboard_design(ui, p),
-                    });
+                    egui::ScrollArea::vertical()
+                        .stick_to_bottom(tab == Tab::Chat)
+                        .show(ui, |ui| match tab {
+                            Tab::Chat => self.chat_design(ui, p),
+                            Tab::Files => self.files_design(ui, p),
+                            Tab::Clipboard => self.clipboard_design(ui, p),
+                        });
                 });
+        }
+        let dropped: Vec<_> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        for path in dropped {
+            if !self.permissions.files {
+                self.status = self
+                    .tr(
+                        "Dosya aktarım izni kapalı.",
+                        "File transfer is not permitted.",
+                    )
+                    .into();
+            } else if self.send(Command::SendPath(path.clone())) {
+                self.outgoing = path.display().to_string();
+                self.ui_tab = Some(Tab::Files);
+            } else {
+                self.status = self
+                    .tr("Aktarım kuyruğu meşgul.", "Transfer queue busy.")
+                    .into();
+            }
         }
         egui::CentralPanel::default()
             .frame(
@@ -1364,17 +1625,25 @@ impl Desk {
             );
         }
         ui.add_space(16.);
-        ui.add(
+        let field = ui.add(
             egui::TextEdit::multiline(&mut self.chat)
                 .desired_width(f32::INFINITY)
                 .desired_rows(2)
                 .hint_text(if self.settings.english {
-                    "Type a message…"
+                    "Type a message… (Enter sends, Shift+Enter new line)"
                 } else {
-                    "Mesaj yaz…"
+                    "Mesaj yaz… (Enter gönderir, Shift+Enter yeni satır)"
                 }),
         );
-        if button(ui, self.tr("Gönder", "Send"), p, true, ui.available_width()).clicked()
+        // Enter sends; Shift+Enter keeps the newline the text field inserted.
+        let enter = field.has_focus()
+            && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
+        if enter {
+            while self.chat.ends_with('\n') || self.chat.ends_with('\r') {
+                self.chat.pop();
+            }
+        }
+        if (button(ui, self.tr("Gönder", "Send"), p, true, ui.available_width()).clicked() || enter)
             && !self.chat.trim().is_empty()
             && self.chat.len() <= 4096
             && self.send(Command::Chat(self.chat.clone()))
@@ -1482,7 +1751,15 @@ impl Desk {
         }
     }
     fn clipboard_design(&mut self, ui: &mut egui::Ui, p: Palette) {
-        label(ui,self.tr("Pano otomatik eşitlenmez: sen gönderirsin, karşı taraf onaylar. En fazla 8 KiB metin.","Clipboard is never synced automatically: you send it, they approve. Text up to 8 KiB."),13.,p.muted);
+        label(
+            ui,
+            self.tr(
+                "Pano otomatik eşitlenmez: sen gönderirsin, karşı taraf onaylar. En fazla 8 KiB metin.",
+                "Clipboard is never synced automatically: you send it, they approve. Text up to 8 KiB.",
+            ),
+            13.,
+            p.muted,
+        );
         if ui
             .add_enabled(
                 self.permissions.clipboard,

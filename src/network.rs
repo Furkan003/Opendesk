@@ -12,6 +12,11 @@ use std::{
 const MAX_FRAME: usize = 12 * 1024 * 1024;
 const MAX_FILE: usize = 16 * 1024 * 1024;
 const CHUNK: usize = 12 * 1024;
+const COMMANDS_PER_TURN: usize = 32;
+/// Event queue towards the UI; deep enough that a busy or minimized window
+/// never closes the session because a bounded queue filled up.
+const EVENT_QUEUE: usize = 256;
+const COMMAND_QUEUE: usize = 64;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Permissions {
     pub screen: bool,
@@ -196,6 +201,32 @@ pub fn generate_secret() -> String {
     rand::thread_rng().fill_bytes(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
+/// The address this computer uses on its local network, if it has a route.
+/// Connecting a UDP socket only selects a route; no packet is sent.
+pub fn local_ip() -> Option<std::net::IpAddr> {
+    ["8.8.8.8:80", "10.255.255.255:1", "192.168.255.255:1"]
+        .iter()
+        .find_map(|probe| {
+            let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+            socket.connect(probe).ok()?;
+            let ip = socket.local_addr().ok()?.ip();
+            (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
+        })
+}
+/// Adds the default Opendesk port when a viewer types only an IP or host name.
+pub fn with_default_port(address: &str) -> String {
+    let address = address.trim();
+    if address.is_empty()
+        || address.parse::<std::net::SocketAddr>().is_ok()
+        || (address.contains(':') && !address.contains("::") && address.matches(':').count() == 1)
+    {
+        address.to_owned()
+    } else if address.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{address}]:7878")
+    } else {
+        format!("{address}:7878")
+    }
+}
 pub fn generate_code() -> String {
     const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let mut random = [0u8; 20];
@@ -238,8 +269,8 @@ fn relay_connection(relay: &str, password: &str, is_host: bool) -> Result<Connec
     stream
         .write_all(preamble.as_bytes())
         .map_err(|e| e.to_string())?;
-    let (tx, rx) = mpsc::sync_channel(8);
-    let (cmd, commands) = mpsc::sync_channel(8);
+    let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE);
+    let (cmd, commands) = mpsc::sync_channel(COMMAND_QUEUE);
     thread::spawn(move || {
         let waiting = (|| -> Result<(), String> {
             let deadline = std::time::Instant::now() + Duration::from_secs(60);
@@ -342,8 +373,8 @@ pub(crate) fn local_listener(
     label: impl Fn(std::net::SocketAddr) -> String + Send + 'static,
 ) -> Result<(Connection, SyncSender<Event>), String> {
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-    let (tx, rx) = mpsc::sync_channel(8);
-    let (cmd, commands) = mpsc::sync_channel(8);
+    let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE);
+    let (cmd, commands) = mpsc::sync_channel(COMMAND_QUEUE);
     let notices = tx.clone();
     thread::spawn(move || {
         if is_host {
@@ -411,8 +442,8 @@ pub fn connect(addr: &str, password: &str) -> Result<Connection, String> {
         .ok_or("Address has no endpoint")?;
     let stream =
         TcpStream::connect_timeout(&endpoint, Duration::from_secs(3)).map_err(|e| e.to_string())?;
-    let (tx, rx) = mpsc::sync_channel(8);
-    let (cmd, commands) = mpsc::sync_channel(8);
+    let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE);
+    let (cmd, commands) = mpsc::sync_channel(COMMAND_QUEUE);
     thread::spawn(move || {
         run(stream, endpoint.to_string(), false, key, &tx, &commands);
         let _ = tx.try_send(Event::Disconnected);
@@ -462,7 +493,7 @@ fn handshake(
     }
     hs.into_transport_mode().map_err(|e| e.to_string())
 }
-fn packet(s: &mut TcpStream, b: &[u8]) -> Result<(), String> {
+pub(crate) fn packet(s: &mut TcpStream, b: &[u8]) -> Result<(), String> {
     if b.len() > 65535 {
         return Err("Packet too large".into());
     }
@@ -470,7 +501,7 @@ fn packet(s: &mut TcpStream, b: &[u8]) -> Result<(), String> {
         .and_then(|_| s.write_all(b))
         .map_err(|e| e.to_string())
 }
-fn read_packet(s: &mut TcpStream) -> Result<Vec<u8>, String> {
+pub(crate) fn read_packet(s: &mut TcpStream) -> Result<Vec<u8>, String> {
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     let mut h = [0; 4];
     read_until(s, &mut h, deadline)?;
@@ -636,235 +667,246 @@ fn session(
             });
             metrics_at = std::time::Instant::now();
         }
-        match commands.try_recv() {
-            Ok(Command::SendPath(path))
-                if approved
-                    && permissions.files
-                    && builder.is_none()
-                    && stream_sender.is_none() =>
-            {
-                let (tx, rx) = mpsc::sync_channel(1);
-                builder = Some(rx);
-                thread::spawn(move || {
-                    let _ = tx.send(crate::file_protocol::Sender::open(&path));
-                });
-            }
-            Ok(Command::SendPath(_)) if approved => {
-                let _ = events.try_send(Event::Status(
-                    "Transfer busy or file permission disabled".into(),
-                ));
-            }
-            Ok(Command::ReceiveTransfer { directory })
-                if approved
-                    && permissions.files
-                    && pending_manifest.is_some()
-                    && stream_receiver.is_none() =>
-            {
-                let receiver = match crate::file_protocol::Receiver::open(
-                    &directory,
-                    pending_manifest.as_ref().unwrap().clone(),
-                ) {
-                    Ok(receiver) => receiver,
-                    Err(error) => {
-                        let _ = events.try_send(Event::Status(error));
-                        continue;
+        // Drain several queued commands per turn so bursts of input or chat never
+        // wait behind one 12 KiB frame chunk per loop iteration.
+        for _ in 0..COMMANDS_PER_TURN {
+            let command = match commands.try_recv() {
+                Err(TryRecvError::Empty) => break,
+                other => other,
+            };
+            match command {
+                Ok(Command::SendPath(path))
+                    if approved
+                        && permissions.files
+                        && builder.is_none()
+                        && stream_sender.is_none() =>
+                {
+                    let (tx, rx) = mpsc::sync_channel(1);
+                    builder = Some(rx);
+                    thread::spawn(move || {
+                        let _ = tx.send(crate::file_protocol::Sender::open(&path));
+                    });
+                }
+                Ok(Command::SendPath(_)) if approved => {
+                    let _ = events.try_send(Event::Status(
+                        "Transfer busy or file permission disabled".into(),
+                    ));
+                }
+                Ok(Command::ReceiveTransfer { directory })
+                    if approved
+                        && permissions.files
+                        && pending_manifest.is_some()
+                        && stream_receiver.is_none() =>
+                {
+                    let receiver = match crate::file_protocol::Receiver::open(
+                        &directory,
+                        pending_manifest.as_ref().unwrap().clone(),
+                    ) {
+                        Ok(receiver) => receiver,
+                        Err(error) => {
+                            let _ = events.try_send(Event::Status(error));
+                            continue;
+                        }
+                    };
+                    let requests = match receiver.requests() {
+                        Ok(requests) => requests,
+                        Err(error) => {
+                            let _ = events.try_send(Event::Status(error));
+                            continue;
+                        }
+                    };
+                    pending_manifest = None;
+                    send(stream, &mut noise, &Wire::TransferResume(requests))?;
+                    events
+                        .try_send(Event::TransferProgress {
+                            id: receiver.manifest.id.clone(),
+                            completed: receiver.progress(),
+                            total: receiver.manifest.total,
+                            receiving: true,
+                        })
+                        .map_err(|_| "UI unavailable")?;
+                    if receiver.is_complete() {
+                        send(
+                            stream,
+                            &mut noise,
+                            &Wire::TransferFinished(receiver.manifest.id.clone()),
+                        )?;
+                        events
+                            .try_send(Event::TransferComplete {
+                                id: receiver.manifest.id.clone(),
+                            })
+                            .map_err(|_| "UI unavailable")?;
+                    } else {
+                        stream_receiver = Some(receiver);
                     }
-                };
-                let requests = match receiver.requests() {
-                    Ok(requests) => requests,
-                    Err(error) => {
-                        let _ = events.try_send(Event::Status(error));
-                        continue;
+                }
+                Ok(Command::RejectTransfer) if approved => {
+                    pending_manifest = None;
+                    stream_receiver = None;
+                    send(stream, &mut noise, &Wire::TransferRejected)?;
+                }
+                Ok(Command::Authenticate { password, totp })
+                    if !is_host && !approved && auth_attempts < 3 =>
+                {
+                    validate_auth(&password, &totp)?;
+                    auth_attempts += 1;
+                    send(stream, &mut noise, &Wire::Authenticate { password, totp })?;
+                }
+                Ok(Command::SetPermissions(p)) if is_host && approved => {
+                    permissions = p;
+                    send(stream, &mut noise, &Wire::Permissions(p))?;
+                    if !p.screen {
+                        outgoing_frame = None;
                     }
-                };
-                pending_manifest = None;
-                send(stream, &mut noise, &Wire::TransferResume(requests))?;
-                events
-                    .try_send(Event::TransferProgress {
-                        id: receiver.manifest.id.clone(),
-                        completed: receiver.progress(),
-                        total: receiver.manifest.total,
-                        receiving: true,
-                    })
-                    .map_err(|_| "UI unavailable")?;
-                if receiver.is_complete() {
+                    if !p.files {
+                        outgoing_file = None;
+                        file = None;
+                        builder = None;
+                        stream_sender = None;
+                        stream_receiver = None;
+                        incoming_manifest = None;
+                        pending_manifest = None;
+                        outgoing_manifest = None;
+                        resume_requests.clear();
+                        stream_active = false;
+                    }
+                    if !p.input {
+                        let _ = events.try_send(Event::Input(InputEvent::ReleaseAll));
+                    }
+                    events
+                        .try_send(Event::Permissions(p))
+                        .map_err(|_| "UI unavailable")?;
+                }
+                Ok(Command::Monitors(monitors))
+                    if is_host && approved && permissions.screen && peer_capabilities & 8 != 0 =>
+                {
+                    validate_monitors(&monitors)?;
+                    send(stream, &mut noise, &Wire::Monitors(monitors))?;
+                }
+                Ok(Command::SelectMonitor(id))
+                    if !is_host
+                        && approved
+                        && permissions.screen
+                        && id < 32
+                        && peer_capabilities & 8 != 0 =>
+                {
+                    send(stream, &mut noise, &Wire::SelectMonitor(id))?;
+                }
+                Ok(Command::VideoFeedback { max_fps, quality })
+                    if !is_host
+                        && approved
+                        && permissions.screen
+                        && peer_capabilities & 16 != 0 =>
+                {
+                    validate_feedback(max_fps, quality)?;
                     send(
                         stream,
                         &mut noise,
-                        &Wire::TransferFinished(receiver.manifest.id.clone()),
+                        &Wire::VideoFeedback { max_fps, quality },
                     )?;
+                }
+                Ok(Command::Audio {
+                    sample_rate,
+                    channels,
+                    pcm,
+                }) if is_host && approved && permissions.audio && peer_capabilities & 4 != 0 => {
+                    validate_audio(sample_rate, channels, &pcm)?;
+                    send(
+                        stream,
+                        &mut noise,
+                        &Wire::Audio {
+                            sample_rate,
+                            channels,
+                            pcm,
+                        },
+                    )?;
+                }
+                Ok(Command::Clipboard(text)) if approved && permissions.clipboard => {
+                    if text.len() > 8192 {
+                        return Err("Clipboard exceeds 8 KiB limit".into());
+                    }
+                    send(stream, &mut noise, &Wire::Clipboard(text))?;
+                }
+                Ok(Command::SendFile { name, bytes })
+                    if approved && permissions.files && outgoing_file.is_none() =>
+                {
+                    if name.is_empty() || name.len() > 255 || bytes.len() > MAX_FILE {
+                        return Err("Invalid file metadata or file exceeds 16 MiB".into());
+                    }
+                    send(
+                        stream,
+                        &mut noise,
+                        &Wire::FileStart {
+                            name,
+                            size: bytes.len(),
+                        },
+                    )?;
+                    if !bytes.is_empty() {
+                        outgoing_file = Some((bytes, 0));
+                    }
+                }
+                Ok(Command::Chat(text)) if approved => {
+                    if text.len() > 4096 {
+                        return Err("Chat message too long".into());
+                    }
+                    send(stream, &mut noise, &Wire::Chat(text))?;
+                }
+                Ok(Command::Stop) | Err(TryRecvError::Disconnected) => {
+                    let _ = send(stream, &mut noise, &Wire::Bye);
+                    return Ok(());
+                }
+                Ok(Command::Reject) if is_host && !approved => {
+                    send(stream, &mut noise, &Wire::Rejected)?;
+                    return Ok(());
+                }
+                Ok(Command::Accept { control: allow }) if is_host && !approved => {
+                    permissions = Permissions {
+                        input: allow,
+                        ..Permissions::default()
+                    };
+                    send(stream, &mut noise, &Wire::Accepted(permissions))?;
+                    approved = true;
                     events
-                        .try_send(Event::TransferComplete {
-                            id: receiver.manifest.id.clone(),
+                        .try_send(Event::Connected {
+                            peer: peer.clone(),
+                            control: permissions.input,
                         })
                         .map_err(|_| "UI unavailable")?;
-                } else {
-                    stream_receiver = Some(receiver);
                 }
-            }
-            Ok(Command::RejectTransfer) if approved => {
-                pending_manifest = None;
-                stream_receiver = None;
-                send(stream, &mut noise, &Wire::TransferRejected)?;
-            }
-            Ok(Command::Authenticate { password, totp })
-                if !is_host && !approved && auth_attempts < 3 =>
-            {
-                validate_auth(&password, &totp)?;
-                auth_attempts += 1;
-                send(stream, &mut noise, &Wire::Authenticate { password, totp })?;
-            }
-            Ok(Command::SetPermissions(p)) if is_host && approved => {
-                permissions = p;
-                send(stream, &mut noise, &Wire::Permissions(p))?;
-                if !p.screen {
-                    outgoing_frame = None;
+                Ok(Command::AcceptPermissions(p)) if is_host && !approved => {
+                    permissions = p;
+                    send(stream, &mut noise, &Wire::Accepted(p))?;
+                    approved = true;
+                    events
+                        .try_send(Event::Connected {
+                            peer: peer.clone(),
+                            control: p.input,
+                        })
+                        .map_err(|_| "UI unavailable")?;
+                    events
+                        .try_send(Event::Permissions(p))
+                        .map_err(|_| "UI unavailable")?;
                 }
-                if !p.files {
-                    outgoing_file = None;
-                    file = None;
-                    builder = None;
-                    stream_sender = None;
-                    stream_receiver = None;
-                    incoming_manifest = None;
-                    pending_manifest = None;
-                    outgoing_manifest = None;
-                    resume_requests.clear();
-                    stream_active = false;
+                Ok(Command::SendFile { .. }) if approved => {
+                    let _ = events.try_send(Event::Status(
+                        "File transfer busy; retry after it completes".into(),
+                    ));
                 }
-                if !p.input {
-                    let _ = events.try_send(Event::Input(InputEvent::ReleaseAll));
+                Ok(Command::Frame(jpeg))
+                    if is_host && approved && permissions.screen && outgoing_frame.is_none() =>
+                {
+                    if jpeg.len() > MAX_FRAME {
+                        return Err("Frame exceeds limit".into());
+                    }
+                    send(stream, &mut noise, &Wire::FrameStart(jpeg.len()))?;
+                    outgoing_frame = Some((jpeg, 0));
                 }
-                events
-                    .try_send(Event::Permissions(p))
-                    .map_err(|_| "UI unavailable")?;
-            }
-            Ok(Command::Monitors(monitors))
-                if is_host && approved && permissions.screen && peer_capabilities & 8 != 0 =>
-            {
-                validate_monitors(&monitors)?;
-                send(stream, &mut noise, &Wire::Monitors(monitors))?;
-            }
-            Ok(Command::SelectMonitor(id))
-                if !is_host
-                    && approved
-                    && permissions.screen
-                    && id < 32
-                    && peer_capabilities & 8 != 0 =>
-            {
-                send(stream, &mut noise, &Wire::SelectMonitor(id))?;
-            }
-            Ok(Command::VideoFeedback { max_fps, quality })
-                if !is_host && approved && permissions.screen && peer_capabilities & 16 != 0 =>
-            {
-                validate_feedback(max_fps, quality)?;
-                send(
-                    stream,
-                    &mut noise,
-                    &Wire::VideoFeedback { max_fps, quality },
-                )?;
-            }
-            Ok(Command::Audio {
-                sample_rate,
-                channels,
-                pcm,
-            }) if is_host && approved && permissions.audio && peer_capabilities & 4 != 0 => {
-                validate_audio(sample_rate, channels, &pcm)?;
-                send(
-                    stream,
-                    &mut noise,
-                    &Wire::Audio {
-                        sample_rate,
-                        channels,
-                        pcm,
-                    },
-                )?;
-            }
-            Ok(Command::Clipboard(text)) if approved && permissions.clipboard => {
-                if text.len() > 8192 {
-                    return Err("Clipboard exceeds 8 KiB limit".into());
+                Ok(Command::Input(input)) if !is_host && approved && permissions.input => {
+                    validate_input(&input)?;
+                    send(stream, &mut noise, &Wire::Input(input))?;
                 }
-                send(stream, &mut noise, &Wire::Clipboard(text))?;
+                _ => {}
             }
-            Ok(Command::SendFile { name, bytes })
-                if approved && permissions.files && outgoing_file.is_none() =>
-            {
-                if name.is_empty() || name.len() > 255 || bytes.len() > MAX_FILE {
-                    return Err("Invalid file metadata or file exceeds 16 MiB".into());
-                }
-                send(
-                    stream,
-                    &mut noise,
-                    &Wire::FileStart {
-                        name,
-                        size: bytes.len(),
-                    },
-                )?;
-                if !bytes.is_empty() {
-                    outgoing_file = Some((bytes, 0));
-                }
-            }
-            Ok(Command::Chat(text)) if approved => {
-                if text.len() > 4096 {
-                    return Err("Chat message too long".into());
-                }
-                send(stream, &mut noise, &Wire::Chat(text))?;
-            }
-            Ok(Command::Stop) | Err(TryRecvError::Disconnected) => {
-                let _ = send(stream, &mut noise, &Wire::Bye);
-                return Ok(());
-            }
-            Ok(Command::Reject) if is_host && !approved => {
-                send(stream, &mut noise, &Wire::Rejected)?;
-                return Ok(());
-            }
-            Ok(Command::Accept { control: allow }) if is_host && !approved => {
-                permissions = Permissions {
-                    input: allow,
-                    ..Permissions::default()
-                };
-                send(stream, &mut noise, &Wire::Accepted(permissions))?;
-                approved = true;
-                events
-                    .try_send(Event::Connected {
-                        peer: peer.clone(),
-                        control: permissions.input,
-                    })
-                    .map_err(|_| "UI unavailable")?;
-            }
-            Ok(Command::AcceptPermissions(p)) if is_host && !approved => {
-                permissions = p;
-                send(stream, &mut noise, &Wire::Accepted(p))?;
-                approved = true;
-                events
-                    .try_send(Event::Connected {
-                        peer: peer.clone(),
-                        control: p.input,
-                    })
-                    .map_err(|_| "UI unavailable")?;
-                events
-                    .try_send(Event::Permissions(p))
-                    .map_err(|_| "UI unavailable")?;
-            }
-            Ok(Command::SendFile { .. }) if approved => {
-                let _ = events.try_send(Event::Status(
-                    "File transfer busy; retry after it completes".into(),
-                ));
-            }
-            Ok(Command::Frame(jpeg))
-                if is_host && approved && permissions.screen && outgoing_frame.is_none() =>
-            {
-                if jpeg.len() > MAX_FRAME {
-                    return Err("Frame exceeds limit".into());
-                }
-                send(stream, &mut noise, &Wire::FrameStart(jpeg.len()))?;
-                outgoing_frame = Some((jpeg, 0));
-            }
-            Ok(Command::Input(input)) if !is_host && approved && permissions.input => {
-                validate_input(&input)?;
-                send(stream, &mut noise, &Wire::Input(input))?;
-            }
-            _ => {}
         }
         let stream_ready =
             outgoing_manifest.is_some() || stream_active || !resume_requests.is_empty();
@@ -1244,9 +1286,13 @@ fn session(
                 }
                 Wire::Input(input) if is_host && approved && permissions.input => {
                     validate_input(&input)?;
-                    events
-                        .try_send(Event::Input(input))
-                        .map_err(|_| "Input queue full; session closed")?;
+                    // A momentarily full queue drops this event instead of ending
+                    // the session; the viewer releases held keys on focus loss.
+                    if let Err(mpsc::TrySendError::Disconnected(_)) =
+                        events.try_send(Event::Input(input))
+                    {
+                        return Err("UI unavailable".into());
+                    }
                 }
                 Wire::Clipboard(_) if approved && !permissions.clipboard => {}
                 Wire::Input(_) if approved && !permissions.input => {}
@@ -1269,7 +1315,7 @@ fn session(
         }
     }
 }
-fn validate_input(input: &InputEvent) -> Result<(), String> {
+pub(crate) fn validate_input(input: &InputEvent) -> Result<(), String> {
     match input {
         InputEvent::Scroll { x, y } if !(-100..=100).contains(x) || !(-100..=100).contains(y) => {
             Err("Scroll delta exceeds limit".into())
@@ -1407,6 +1453,15 @@ mod tests {
                 return event;
             }
         }
+    }
+    #[test]
+    fn default_port_is_added_only_when_missing() {
+        assert_eq!(with_default_port(" 192.168.1.20 "), "192.168.1.20:7878");
+        assert_eq!(with_default_port("192.168.1.20:9000"), "192.168.1.20:9000");
+        assert_eq!(with_default_port("lab-pc"), "lab-pc:7878");
+        assert_eq!(with_default_port("lab-pc:9000"), "lab-pc:9000");
+        assert_eq!(with_default_port("fe80::1"), "[fe80::1]:7878");
+        assert_eq!(with_default_port("[fe80::1]:9000"), "[fe80::1]:9000");
     }
     #[test]
     fn secret_validation() {

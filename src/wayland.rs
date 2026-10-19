@@ -50,10 +50,10 @@ pub fn active() -> bool {
 pub fn stop() {
     EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     STOPPED.store(true, std::sync::atomic::Ordering::SeqCst);
-    if let Ok(mut state) = PORTAL.get_or_init(|| Mutex::new(None)).lock() {
-        if let Some(p) = state.take() {
-            let _ = p.tx.send(Request::Stop);
-        }
+    if let Ok(mut state) = PORTAL.get_or_init(|| Mutex::new(None)).lock()
+        && let Some(p) = state.take()
+    {
+        let _ = p.tx.send(Request::Stop);
     }
 }
 /// Opens the OS dialog only on a background worker. Capture callers wait for
@@ -87,12 +87,11 @@ fn ensure() -> Result<(), String> {
         return Ok(());
     }
     drop(state);
-    if let Ok(error) = INIT_ERROR.lock() {
-        if let Some((failed_epoch, message)) = error.as_ref() {
-            if *failed_epoch == epoch {
-                return Err(message.clone());
-            }
-        }
+    if let Ok(error) = INIT_ERROR.lock()
+        && let Some((failed_epoch, message)) = error.as_ref()
+        && *failed_epoch == epoch
+    {
+        return Err(message.clone());
     }
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let frame: Frame = Arc::new(Mutex::new(None));
@@ -139,7 +138,7 @@ fn ensure() -> Result<(), String> {
             let _=ready_tx.send(Ok((width as u32,height as u32)));
             let mut interval=tokio::time::interval(Duration::from_millis(200));
             loop {tokio::select! {
-                request=rx.recv()=>match request {Some(Request::Stop)|None=>break,Some(Request::Input(event))=>{if let Err(error)=apply(&remote,&session,node,width,height,event).await { if let Ok(mut last)=INPUT_ERROR.lock() { *last=Some(error); } }}},
+                request=rx.recv()=>match request {Some(Request::Stop)|None=>break,Some(Request::Input(event))=>{if let Err(error)=apply(&remote,&session,node,width,height,event).await && let Ok(mut last)=INPUT_ERROR.lock() { *last=Some(error); }}},
                 _=interval.tick()=>{if child.0.try_wait().map_err(|e|e.to_string())?.is_some(){break;}}
             }}
             let _=child.0.kill();let _=child.0.wait();let _=session.close().await;Ok(())
@@ -231,10 +230,10 @@ pub fn input(event: InputEvent) -> Result<(), String> {
             .tx
             .clone()
     };
-    if let Ok(mut last) = INPUT_ERROR.lock() {
-        if let Some(error) = last.take() {
-            return Err(error);
-        }
+    if let Ok(mut last) = INPUT_ERROR.lock()
+        && let Some(error) = last.take()
+    {
+        return Err(error);
     }
     // DBus processing stays on the portal worker, including delayed replies.
     tx.send(Request::Input(event))

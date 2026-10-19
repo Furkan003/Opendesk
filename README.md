@@ -24,6 +24,62 @@ uyumlu değildir. 0.1 istemcilerinin her iki uçta da 0.2 sürümüne yükseltil
 | Kayıt | Görünür kayıt göstergesi, gerçek indexed MJPEG AVI video |
 | Kurulum/güncelleme | Kullanıcıya özel kurulum, isteğe bağlı görünür otomatik başlatma; imzalı güncelleme kontrol/indirme/uygulama |
 
+## Kurulum (Windows)
+
+GitHub sürümlerinden **Opendesk-Windows-Kurulum.exe** dosyasını indirip çalıştır.
+Kurulum sırasında bilgisayarın nasıl kullanılacağı sorulur:
+
+| Seçim | Uygulama açılınca |
+| --- | --- |
+| Bireysel | Bağlan / paylaş ekranı (uzak masaüstü) |
+| Öğretmen | Sınıf ekranı: sınıf oluştur, öğrencileri izle |
+| Öğrenci | Sınıfa katıl ekranı |
+
+Seçim yalnızca başlangıç ekranını belirler, Ayarlar > Kullanım'dan değiştirilebilir;
+bütün özellikler her rolde açıktır. Yönetici olarak çalıştırılırsa Program Files'a
+herkes için kurar ve Windows Güvenlik Duvarı'na Opendesk kuralını (özel/etki alanı
+ağları) ekler; normal kullanıcıyla yönetici izni istemeden yalnızca o kullanıcıya
+kurar. Laboratuvarda çok bilgisayara sessiz kurulum:
+
+```bat
+Opendesk-Windows-Kurulum.exe /S /ROLE=student
+```
+
+Kaldırma: Ayarlar > Uygulamalar veya Başlat menüsündeki "Opendesk kaldır".
+Kurulum dosyası `packaging/windows/opendesk.nsi` içindedir ve `v*` etiketiyle
+`.github/workflows/surum.yml` tarafından otomatik üretilir.
+
+## Sınıf modu (öğretmen / öğrenci)
+
+Aynı yerel ağdaki bir sınıf için, NetSupport School benzeri kullanım:
+
+1. Öğretmen bilgisayarında **Sınıf > Öğretmen**, sınıf adını yaz, **Sınıfı başlat**.
+   Ekranda kısa bir sınıf kodu (ör. `ABCDE-FGHJK`) ve IP adresi görünür; kod
+   saklanır, sonraki derslerde aynı kod kullanılır.
+2. Öğrenci bilgisayarında **Sınıf > Öğrenci**: adını yaz, sınıf ağda otomatik
+   listelenir (listede yoksa öğretmenin IP adresini yaz), kodu gir, **Katıl**.
+   "Opendesk açılınca otomatik katıl" seçilirse sonraki açılışlarda kendiliğinden katılır.
+3. Öğretmen ekranında bütün öğrenci ekranları küçük resimler olarak görünür.
+
+Öğretmenin yapabildikleri:
+
+- **Ekranımı yansıt**: öğretmenin ekranı bütün öğrencilerde tam ekran açılır.
+- **Bir öğrencinin ekranını herkese göster** (küçük resimdeki 📺 veya büyük görünümde
+  "Herkese göster").
+- Küçük resme tıklayınca büyük görünüm; **Kontrol et** ile fare/klavye kontrolü.
+- Seçili öğrencilerin veya herkesin ekranını **kilitle / kilidi aç**.
+- Seçili öğrencilere veya herkese **mesaj gönder**, **web sitesi aç**.
+- Öğrencinin **söz isteme / yardım** (✋) isteği ve öğretmene mesajı görünür.
+
+Öğrenci tarafında öğretmenin ekranı görebildiği her zaman kırmızı uyarıyla gösterilir.
+Öğretmen bağlantısı koparsa kilit ve yansıtma hemen kalkar, öğrenci 3 saniyede bir
+yeniden bağlanmayı dener. Trafik sınıf koduyla (Noise PSK) şifrelenir; ağdaki duyuru
+yalnızca sınıf adını ve portu içerir, kodu içermez.
+
+Ağ gereksinimleri: öğretmen TCP **7880** dinler, öğrenciler sınıf duyurusunu UDP
+**7881** üzerinden alır. Kurulum yönetici olarak yapıldıysa güvenlik duvarı kuralı
+eklenmiştir; aksi halde Windows ilk açılışta izin sorar ("Özel ağ" seçilmeli).
+
 ## Windows kullanımı
 
 ZIP paketini tüm dosyalarıyla çıkar. Taşınabilir kullanım için Opendesk.exe;
